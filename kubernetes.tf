@@ -119,7 +119,7 @@ resource "kubernetes_service" "guestlist_service" {
 
     port {
       name        = "http"
-      port        = 80
+      port        = 9999
       target_port = 1111
       protocol    = "TCP"
     }
