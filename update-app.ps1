@@ -171,8 +171,8 @@ if (![string]::IsNullOrEmpty($lbHost)) {
     Write-ColorOutput "🎉 Update completed successfully!" -Type Success
     Write-Host ""
     Write-ColorOutput "Your updated Guest List API is now available at:" -Type Success
-    Write-ColorOutput "🌐 Web Interface: http://$lbHost`:9999/" -Type Success
-    Write-ColorOutput "🔗 API Endpoint: http://$lbHost`:9999/guests" -Type Success
+    Write-ColorOutput "🌐 Web Interface: http://$lbHost:9999/" -Type Success
+    Write-ColorOutput "🔗 API Endpoint: http://$lbHost:9999/guests" -Type Success
     Write-Host ""
     Write-ColorOutput "New features:" -Type Info
     Write-ColorOutput "  ✅ Beautiful HTML interface" -Type Info
