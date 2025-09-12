@@ -21,7 +21,7 @@ node_max_capacity      = 3           # Max 3 for cost control
 node_min_capacity      = 1           # Min 1 to save costs when idle
 
 # Application Configuration
-app_image    = "giligalili/guestlistapi:ver03"  # Your Docker image
+app_image    = "giligalili/guestlistapi:ver04"  # Your Docker image
 app_replicas = 2  # Start with 2 replicas, can scale up/down
 
 # COST OPTIMIZATION NOTES:
