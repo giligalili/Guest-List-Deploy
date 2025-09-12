@@ -9,7 +9,7 @@ cluster_name = "guestlist-cluster"  # Make this unique for each student
 environment  = "dev"                # dev, staging, or prod
 
 # Student Information (customize this!)
-student_name = "sivan"     # Replace with your actual name
+student_name = "your name"     # Replace with your actual name
 
 # Network Configuration
 vpc_cidr = "10.0.0.0/16"
