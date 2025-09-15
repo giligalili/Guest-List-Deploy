@@ -28,7 +28,6 @@ on:
         type: choice
         options:
           - dev
-
       action:
         description: 'Terraform action'
         required: true
@@ -148,9 +147,9 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', upper(matrix.environment))] }}
-          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', upper(matrix.environment))] }}
-          aws-region: ${{ vars[format('AWS_REGION_{0}', upper(matrix.environment))] || env.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || matrix.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || matrix.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
 
       - name: Find Main Terraform Directory
         id: find-main-dir
@@ -179,9 +178,9 @@ jobs:
             terraform init -backend-config="backend-${{ matrix.environment }}.hcl"
           elif [ -f "backend.tf" ]; then
             terraform init \
-              -backend-config="bucket=${{ vars[format('TF_STATE_BUCKET_{0}', upper(matrix.environment))] }}" \
+              -backend-config="bucket=${{ matrix.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || matrix.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
               -backend-config="key=guest-list/${{ matrix.environment }}/terraform.tfstate" \
-              -backend-config="region=${{ vars[format('AWS_REGION_{0}', upper(matrix.environment))] || env.AWS_DEFAULT_REGION }}"
+              -backend-config="region=${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
           else
             terraform init
           fi
@@ -266,9 +265,9 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', upper(matrix.environment))] }}
-          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', upper(matrix.environment))] }}
-          aws-region: ${{ vars[format('AWS_REGION_{0}', upper(matrix.environment))] || env.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || matrix.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || matrix.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
 
       - name: Find Main Terraform Directory
         id: find-main-dir
@@ -300,9 +299,9 @@ jobs:
             terraform init -backend-config="backend-${{ matrix.environment }}.hcl"
           elif [ -f "backend.tf" ]; then
             terraform init \
-              -backend-config="bucket=${{ vars[format('TF_STATE_BUCKET_{0}', upper(matrix.environment))] }}" \
+              -backend-config="bucket=${{ matrix.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || matrix.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
               -backend-config="key=guest-list/${{ matrix.environment }}/terraform.tfstate" \
-              -backend-config="region=${{ vars[format('AWS_REGION_{0}', upper(matrix.environment))] || env.AWS_DEFAULT_REGION }}"
+              -backend-config="region=${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
           else
             terraform init
           fi
@@ -360,9 +359,9 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets[format('AWS_ACCESS_KEY_ID_{0}', upper(github.event.inputs.environment))] }}
-          aws-secret-access-key: ${{ secrets[format('AWS_SECRET_ACCESS_KEY_{0}', upper(github.event.inputs.environment))] }}
-          aws-region: ${{ vars[format('AWS_REGION_{0}', upper(github.event.inputs.environment))] || env.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ github.event.inputs.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || github.event.inputs.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ github.event.inputs.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || github.event.inputs.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ github.event.inputs.environment == 'dev' && vars.AWS_REGION_DEV || github.event.inputs.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
 
       - name: Find Main Terraform Directory
         id: find-main-dir
@@ -388,9 +387,9 @@ jobs:
             terraform init -backend-config="backend-${{ github.event.inputs.environment }}.hcl"
           elif [ -f "backend.tf" ]; then
             terraform init \
-              -backend-config="bucket=${{ vars[format('TF_STATE_BUCKET_{0}', upper(github.event.inputs.environment))] }}" \
+              -backend-config="bucket=${{ github.event.inputs.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || github.event.inputs.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
               -backend-config="key=guest-list/${{ github.event.inputs.environment }}/terraform.tfstate" \
-              -backend-config="region=${{ vars[format('AWS_REGION_{0}', upper(github.event.inputs.environment))] || env.AWS_DEFAULT_REGION }}"
+              -backend-config="region=${{ github.event.inputs.environment == 'dev' && vars.AWS_REGION_DEV || github.event.inputs.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
           else
             terraform init
           fi
