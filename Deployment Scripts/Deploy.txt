@@ -1,4 +1,0 @@
-# Deploy to different environments
-.\deploy.ps1 -Environment dev
-.\deploy.ps1 -Environment staging
-.\deploy.ps1 -Environment prod

@@ -1,0 +1,6 @@
+# Simple deployment for each student
+PowerShell -ExecutionPolicy Bypass -File .\deploy.ps1 -UserName "sivan" -Environment dev    # Auto-creates guestlist-sivan-dev
+PowerShell -ExecutionPolicy Bypass -File .\deploy.ps1 -UserName "dvir" -Environment dev     # Auto-creates guestlist-dvir-dev  
+PowerShell -ExecutionPolicy Bypass -File .\deploy.ps1 -UserName "saar" -Environment dev     # Auto-creates guestlist-saar-dev
+PowerShell -ExecutionPolicy Bypass -File .\deploy.ps1 -UserName "gili" -Environment dev     # Auto-creates guestlist-gili-dev
+
