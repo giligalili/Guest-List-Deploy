@@ -1,0 +1,103 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: guestlist-ingress
+  namespace: guestlist-dev
+  labels:
+    app: guestlist
+    environment: dev
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/load-balancer-name: guestlist-alb-dev
+    alb.ingress.kubernetes.io/tags: Environment=dev,Project=guestlist,ManagedBy=terraform
+    # SSL/TLS Configuration (uncomment when certificate is available)
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:region:account:certificate/cert-id
+    # alb.ingress.kubernetes.io/ssl-redirect: '443'
+spec:
+  ingressClassName: alb
+  rules:
+  - host: guestlist-dev.example.com  # Replace with your domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: guestlist-service-internal
+            port:
+              number: 1111
+      - path: /guests
+        pathType: Prefix
+        backend:
+          service:
+            name: guestlist-service-internal
+            port:
+              number: 1111
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: guestlist-service-internal
+            port:
+              number: 1111
+  # Default backend for unmatched requests
+  defaultBackend:
+    service:
+      name: guestlist-service-internal
+      port:
+        number: 1111
+  # TLS configuration (uncomment when SSL certificate is available)
+  # tls:
+  # - hosts:
+  #   - guestlist-dev.example.com
+  #   secretName: guestlist-tls-secret
+---
+# Alternative Ingress for staging/production with different host
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: guestlist-ingress-api
+  namespace: guestlist-dev
+  labels:
+    app: guestlist
+    environment: dev
+    type: api
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/load-balancer-name: guestlist-api-alb-dev
+    alb.ingress.kubernetes.io/tags: Environment=dev,Project=guestlist,Type=api
+    # Rate limiting annotations
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  ingressClassName: alb
+  rules:
+  - host: api.guestlist-dev.example.com  # API-specific subdomain
+    http:
+      paths:
+      - path: /api/v1/guests
+        pathType: Prefix
+        backend:
+          service:
+            name: guestlist-service-internal
+            port:
+              number: 1111
+      - path: /api/v1/health
+        pathType: Prefix
+        backend:
+          service:
+            name: guestlist-service-internal
+            port:
+              number: 1111
