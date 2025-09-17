@@ -55,11 +55,30 @@ jobs:
           aws-secret-access-key: hZFkV/1P2aJ2B5Z8u7TxXduONJe+EnyZd4Q1d/4O
           aws-region: us-east-1
 
+      - name: Detect Terraform Directory
+        id: find-dir
+        run: |
+          if [ -f "./main.tf" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+          elif [ -f "./terraform/main.tf" ]; then
+            echo "dir=terraform" >> $GITHUB_OUTPUT
+          elif [ -f "./infrastructure/main.tf" ]; then
+            echo "dir=infrastructure" >> $GITHUB_OUTPUT
+          else
+            tfdir=$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)
+            if [ -z "$tfdir" ]; then
+              tfdir="."
+            fi
+            echo "dir=$tfdir" >> $GITHUB_OUTPUT
+          fi
+
       - name: Terraform Init
+        working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform init
 
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan' || github.event_name != 'workflow_dispatch'
+        working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
           if [ -f "dev.tfvars" ]; then
             terraform plan -var-file="dev.tfvars" -out=tfplan-dev -no-color
@@ -69,6 +88,7 @@ jobs:
 
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
+        working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
           if [ -f "dev.tfvars" ]; then
             terraform apply -var-file="dev.tfvars" -auto-approve
@@ -78,6 +98,7 @@ jobs:
 
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
+        working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
           if [ -f "dev.tfvars" ]; then
             terraform destroy -var-file="dev.tfvars" -auto-approve
