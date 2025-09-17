@@ -149,7 +149,7 @@ jobs:
         with:
           aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV }}
           aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV }}
-          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV }}
+          aws-region: us-east-1
 
       - name: Find Main Terraform Directory
         id: find-main-dir
