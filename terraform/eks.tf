@@ -67,7 +67,7 @@ resource "aws_iam_role_policy_attachment" "nodes_AmazonEC2ContainerRegistryReadO
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
   role_arn = aws_iam_role.cluster.arn
-  version  = "1.28"  # Cost-optimized version
+  version  = "1.28" # Cost-optimized version
 
   vpc_config {
     subnet_ids              = concat(aws_subnet.private[*].id, aws_subnet.public[*].id)
@@ -97,7 +97,7 @@ resource "aws_eks_node_group" "main" {
   subnet_ids      = aws_subnet.private[*].id
 
   # Cost-optimized configuration
-  capacity_type  = "ON_DEMAND"  # Change to "SPOT" for even lower costs
+  capacity_type  = "ON_DEMAND" # Change to "SPOT" for even lower costs
   instance_types = [var.node_instance_type]
 
   scaling_config {

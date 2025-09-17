@@ -46,7 +46,7 @@ resource "kubernetes_deployment" "guestlist_api" {
         container {
           image = var.app_image
           name  = "guestlist-container"
-          
+
           port {
             container_port = 1111
             protocol       = "TCP"
