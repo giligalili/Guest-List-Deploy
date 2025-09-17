@@ -178,9 +178,9 @@ jobs:
             terraform init -backend-config="backend-${{ matrix.environment }}.hcl"
           elif [ -f "backend.tf" ]; then
             terraform init \
-              -backend-config="bucket=${{ matrix.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || matrix.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
+              -backend-config="bucket=${{ matrix.environment == 'dev' && vars.TF_STATE_BUCKET_DEV}}" \
               -backend-config="key=guest-list/${{ matrix.environment }}/terraform.tfstate" \
-              -backend-config="region=${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
+              -backend-config="region=${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV}}"
           else
             terraform init
           fi
