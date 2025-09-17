@@ -133,7 +133,7 @@ jobs:
     if: needs.detect-changes.outputs.terraform-changed == 'true' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
-        environment: [dev, staging, prod]
+        environment: [dev]
         
     steps:
       - name: Checkout
@@ -147,9 +147,9 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || matrix.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
-          aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || matrix.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
-          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
+          aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV }}
+          aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV }}
+          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV }}
 
       - name: Find Main Terraform Directory
         id: find-main-dir
