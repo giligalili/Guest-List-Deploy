@@ -1,0 +1,408 @@
+# .github/workflows/terraform-deploy.yml
+name: Guest List Terraform Deploy
+
+on:
+  push:
+    branches:
+      - sahar-feature
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '**.yml'
+      - '**.yaml'
+      - '.github/workflows/**'
+  pull_request:
+    branches:
+      - sahar-feature
+    paths:
+      - '**.tf'
+      - '**.tfvars'
+      - '**.yml'
+      - '**.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+
+env:
+  TF_VERSION: "1.6.0"
+  TF_LOG: INFO
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      terraform-changed: ${{ steps.changes.outputs.terraform }}
+      yaml-changed: ${{ steps.changes.outputs.yaml }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1..HEAD | grep -E '\.(tf|tfvars)$'; then
+            echo "terraform=true" >> $GITHUB_OUTPUT
+          else
+            echo "terraform=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if git diff --name-only HEAD~1..HEAD | grep -E '\.(yml|yaml)$'; then
+            echo "yaml=true" >> $GITHUB_OUTPUT
+          else
+            echo "yaml=false" >> $GITHUB_OUTPUT
+          fi
+
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.terraform-changed == 'true' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Find Terraform directories
+        id: find-dirs
+        run: |
+          terraform_dirs=$(find . -name "*.tf" -type f -exec dirname {} \; | sort -u | grep -v '.terraform' || true)
+          if [ -z "$terraform_dirs" ]; then
+            terraform_dirs="."
+          fi
+          echo "directories<<EOF" >> $GITHUB_OUTPUT
+          echo "$terraform_dirs" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Terraform Format Check
+        run: |
+          format_issues=""
+          while IFS= read -r dir; do
+            if [ -n "$dir" ]; then
+              echo "Checking format in directory: $dir"
+              if ! terraform fmt -check -recursive "$dir"; then
+                format_issues="$format_issues$dir "
+              fi
+            fi
+          done <<< "${{ steps.find-dirs.outputs.directories }}"
+          
+          if [ -n "$format_issues" ]; then
+            echo "Format issues found in directories: $format_issues"
+            exit 1
+          fi
+
+      - name: Terraform Init and Validate
+        run: |
+          while IFS= read -r dir; do
+            if [ -n "$dir" ] && [ -f "$dir/main.tf" ] || [ -f "$dir/versions.tf" ] || ls "$dir"/*.tf >/dev/null 2>&1; then
+              echo "Initializing and validating directory: $dir"
+              cd "$dir"
+              terraform init -backend=false
+              terraform validate
+              cd - > /dev/null
+            fi
+          done <<< "${{ steps.find-dirs.outputs.directories }}"
+
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: [detect-changes, terraform-validate]
+    if: needs.detect-changes.outputs.terraform-changed == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+        
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || matrix.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || matrix.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
+
+      - name: Find Main Terraform Directory
+        id: find-main-dir
+        run: |
+          # Look for main terraform directory
+          if [ -f "./main.tf" ]; then
+            echo "terraform_dir=." >> $GITHUB_OUTPUT
+          elif [ -f "./terraform/main.tf" ]; then
+            echo "terraform_dir=terraform" >> $GITHUB_OUTPUT
+          elif [ -f "./infrastructure/main.tf" ]; then
+            echo "terraform_dir=infrastructure" >> $GITHUB_OUTPUT
+          else
+            # Find the first directory with terraform files
+            terraform_dir=$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)
+            if [ -z "$terraform_dir" ]; then
+              terraform_dir="."
+            fi
+            echo "terraform_dir=$terraform_dir" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Init
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          # Initialize with backend configuration if available
+          if [ -f "backend-${{ matrix.environment }}.hcl" ]; then
+            terraform init -backend-config="backend-${{ matrix.environment }}.hcl"
+          elif [ -f "backend.tf" ]; then
+            terraform init \
+              -backend-config="bucket=${{ matrix.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || matrix.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
+              -backend-config="key=guest-list/${{ matrix.environment }}/terraform.tfstate" \
+              -backend-config="region=${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
+          else
+            terraform init
+          fi
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          # Look for environment-specific tfvars file
+          if [ -f "${{ matrix.environment }}.tfvars" ]; then
+            terraform plan -var-file="${{ matrix.environment }}.tfvars" -out=tfplan-${{ matrix.environment }} -no-color
+          elif [ -f "environments/${{ matrix.environment }}.tfvars" ]; then
+            terraform plan -var-file="environments/${{ matrix.environment }}.tfvars" -out=tfplan-${{ matrix.environment }} -no-color
+          elif [ -f "vars/${{ matrix.environment }}.tfvars" ]; then
+            terraform plan -var-file="vars/${{ matrix.environment }}.tfvars" -out=tfplan-${{ matrix.environment }} -no-color
+          else
+            terraform plan -var="environment=${{ matrix.environment }}" -out=tfplan-${{ matrix.environment }} -no-color
+          fi
+        continue-on-error: true
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        if: steps.plan.outcome == 'success'
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: ${{ steps.find-main-dir.outputs.terraform_dir }}/tfplan-${{ matrix.environment }}
+          retention-days: 5
+
+      - name: Comment PR with Plan
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const output = `#### Terraform Plan for ${{ matrix.environment }} 📖 \`${{ steps.plan.outcome }}\`
+            
+            <details><summary>Show Plan Output</summary>
+            
+            \`\`\`
+            Plan completed for environment: ${{ matrix.environment }}
+            Status: ${{ steps.plan.outcome }}
+            Directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+            \`\`\`
+            
+            </details>
+            
+            *Workflow: \`${{ github.workflow }}\`*
+            *Action: \`${{ github.event_name }}\`*
+            *Working Directory: \`${{ steps.find-main-dir.outputs.terraform_dir }}\`*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [terraform-plan]
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.ref == 'refs/heads/sahar-feature' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply')
+    environment: 
+      name: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || 'dev') }}
+    
+    strategy:
+      matrix:
+        environment: 
+          - ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || (github.ref == 'refs/heads/sahar-feature' && 'dev' || 'dev')) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ matrix.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || matrix.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ matrix.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || matrix.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
+
+      - name: Find Main Terraform Directory
+        id: find-main-dir
+        run: |
+          if [ -f "./main.tf" ]; then
+            echo "terraform_dir=." >> $GITHUB_OUTPUT
+          elif [ -f "./terraform/main.tf" ]; then
+            echo "terraform_dir=terraform" >> $GITHUB_OUTPUT
+          elif [ -f "./infrastructure/main.tf" ]; then
+            echo "terraform_dir=infrastructure" >> $GITHUB_OUTPUT
+          else
+            terraform_dir=$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)
+            if [ -z "$terraform_dir" ]; then
+              terraform_dir="."
+            fi
+            echo "terraform_dir=$terraform_dir" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: ${{ steps.find-main-dir.outputs.terraform_dir }}/
+
+      - name: Terraform Init
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          if [ -f "backend-${{ matrix.environment }}.hcl" ]; then
+            terraform init -backend-config="backend-${{ matrix.environment }}.hcl"
+          elif [ -f "backend.tf" ]; then
+            terraform init \
+              -backend-config="bucket=${{ matrix.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || matrix.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
+              -backend-config="key=guest-list/${{ matrix.environment }}/terraform.tfstate" \
+              -backend-config="region=${{ matrix.environment == 'dev' && vars.AWS_REGION_DEV || matrix.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
+          else
+            terraform init
+          fi
+
+      - name: Terraform Apply
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          if [ -f "tfplan-${{ matrix.environment }}" ]; then
+            terraform apply -auto-approve tfplan-${{ matrix.environment }}
+          else
+            # Fallback to direct apply if plan file not found
+            if [ -f "${{ matrix.environment }}.tfvars" ]; then
+              terraform apply -var-file="${{ matrix.environment }}.tfvars" -auto-approve
+            elif [ -f "environments/${{ matrix.environment }}.tfvars" ]; then
+              terraform apply -var-file="environments/${{ matrix.environment }}.tfvars" -auto-approve
+            elif [ -f "vars/${{ matrix.environment }}.tfvars" ]; then
+              terraform apply -var-file="vars/${{ matrix.environment }}.tfvars" -auto-approve
+            else
+              terraform apply -var="environment=${{ matrix.environment }}" -auto-approve
+            fi
+          fi
+
+      - name: Terraform Output
+        id: output
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          terraform output -json > terraform-outputs.json || echo "{}" > terraform-outputs.json
+          # Try to get common outputs
+          app_url=$(terraform output -raw application_url 2>/dev/null || terraform output -raw app_url 2>/dev/null || echo "N/A")
+          echo "application_url=$app_url" >> $GITHUB_OUTPUT
+
+      - name: Upload Terraform Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-outputs-${{ matrix.environment }}
+          path: ${{ steps.find-main-dir.outputs.terraform_dir }}/terraform-outputs.json
+          retention-days: 30
+
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    environment: 
+      name: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ github.event.inputs.environment == 'dev' && secrets.AWS_ACCESS_KEY_ID_DEV || github.event.inputs.environment == 'staging' && secrets.AWS_ACCESS_KEY_ID_STAGING || secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ github.event.inputs.environment == 'dev' && secrets.AWS_SECRET_ACCESS_KEY_DEV || github.event.inputs.environment == 'staging' && secrets.AWS_SECRET_ACCESS_KEY_STAGING || secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ github.event.inputs.environment == 'dev' && vars.AWS_REGION_DEV || github.event.inputs.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}
+
+      - name: Find Main Terraform Directory
+        id: find-main-dir
+        run: |
+          if [ -f "./main.tf" ]; then
+            echo "terraform_dir=." >> $GITHUB_OUTPUT
+          elif [ -f "./terraform/main.tf" ]; then
+            echo "terraform_dir=terraform" >> $GITHUB_OUTPUT
+          elif [ -f "./infrastructure/main.tf" ]; then
+            echo "terraform_dir=infrastructure" >> $GITHUB_OUTPUT
+          else
+            terraform_dir=$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)
+            if [ -z "$terraform_dir" ]; then
+              terraform_dir="."
+            fi
+            echo "terraform_dir=$terraform_dir" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Init
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          if [ -f "backend-${{ github.event.inputs.environment }}.hcl" ]; then
+            terraform init -backend-config="backend-${{ github.event.inputs.environment }}.hcl"
+          elif [ -f "backend.tf" ]; then
+            terraform init \
+              -backend-config="bucket=${{ github.event.inputs.environment == 'dev' && vars.TF_STATE_BUCKET_DEV || github.event.inputs.environment == 'staging' && vars.TF_STATE_BUCKET_STAGING || vars.TF_STATE_BUCKET_PROD }}" \
+              -backend-config="key=guest-list/${{ github.event.inputs.environment }}/terraform.tfstate" \
+              -backend-config="region=${{ github.event.inputs.environment == 'dev' && vars.AWS_REGION_DEV || github.event.inputs.environment == 'staging' && vars.AWS_REGION_STAGING || vars.AWS_REGION_PROD || env.AWS_DEFAULT_REGION }}"
+          else
+            terraform init
+          fi
+
+      - name: Terraform Destroy
+        working-directory: ${{ steps.find-main-dir.outputs.terraform_dir }}
+        run: |
+          if [ -f "${{ github.event.inputs.environment }}.tfvars" ]; then
+            terraform destroy -var-file="${{ github.event.inputs.environment }}.tfvars" -auto-approve
+          elif [ -f "environments/${{ github.event.inputs.environment }}.tfvars" ]; then
+            terraform destroy -var-file="environments/${{ github.event.inputs.environment }}.tfvars" -auto-approve
+          elif [ -f "vars/${{ github.event.inputs.environment }}.tfvars" ]; then
+            terraform destroy -var-file="vars/${{ github.event.inputs.environment }}.tfvars" -auto-approve
+          else
+            terraform destroy -var="environment=${{ github.event.inputs.environment }}" -auto-approve
+          fi
