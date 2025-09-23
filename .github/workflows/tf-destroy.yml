@@ -1,0 +1,64 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DESTROY to confirm"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  STATE_BUCKET: guest-list-terraform-state-dvir
+  STATE_KEY: envs/prod/terraform.tfstate
+
+jobs:
+  destroy:
+    if: github.event.inputs.confirm == 'DESTROY'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/github-terraform   # <-- your role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Write backend.hcl
+        run: |
+          cat > backend.hcl <<EOF
+          bucket               = "${STATE_BUCKET}"
+          key                  = "${STATE_KEY}"
+          region               = "${AWS_REGION}"
+          encrypt              = true
+          use_lockfile         = true
+          workspace_key_prefix = "envs"
+          EOF
+
+      - name: Init to S3 backend
+        run: terraform init -backend-config=backend.hcl
+
+      # 1) Destroy all your managed resources (not the state bucket itself)
+      - name: Terraform Destroy (infra)
+        run: terraform destroy -auto-approve -var="state_bucket_name=${STATE_BUCKET}" -var="region=${AWS_REGION}"
+
+      # 2) (Optional) Move state back to local so we can delete the bucket, then delete it
+      - name: Re-init to local backend (copy state locally)
+        run: terraform init -reconfigure -backend=false -force-copy
+
+      - name: Delete state bucket (optional)
+        run: |
+          # Remove lifecycle/versioning/encryption/public-block first (if needed) then the bucket
+          terraform destroy -auto-approve -target=aws_s3_bucket_lifecycle_configuration.lc || true
+          terraform destroy -auto-approve -target=aws_s3_bucket_public_access_block.pab || true
+          terraform destroy -auto-approve -target=aws_s3_bucket_server_side_encryption_configuration.encryption || true
+          terraform destroy -auto-approve -target=aws_s3_bucket_versioning.versioning || true
+          terraform destroy -auto-approve -target=aws_s3_bucket.tf_state || true
