@@ -2,8 +2,7 @@ name: Guest List Terraform Deploy (Dev Only)
 
 on:
   push:
-    branches:
-      - sahar-feature
+    branches: [sahar-feature]
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -11,8 +10,7 @@ on:
       - '**.yaml'
       - '.github/workflows/**'
   pull_request:
-    branches:
-      - sahar-feature
+    branches: [sahar-feature]
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -25,10 +23,7 @@ on:
         required: true
         default: 'plan'
         type: choice
-        options:
-          - plan
-          - apply
-          - destroy
+        options: [plan, apply, destroy]
 
 env:
   TF_VERSION: "1.9.8"
@@ -51,9 +46,9 @@ jobs:
       - name: Configure AWS Credentials (Dev)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_DEV }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_DEV }}
-          aws-region: ${{ secrets.AWS_REGION_DEV }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
 
       - name: Detect Terraform Directory
         id: find-dir
@@ -90,7 +85,9 @@ jobs:
         if: github.event.inputs.action == 'apply'
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          if [ -f "dev.tfvars" ]; then
+          if [ -f "tfplan-dev" ]; then
+            terraform apply "tfplan-dev"
+          elif [ -f "dev.tfvars" ]; then
             terraform apply -var-file="dev.tfvars" -auto-approve
           else
             terraform apply -var="environment=dev" -auto-approve
