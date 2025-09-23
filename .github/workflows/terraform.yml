@@ -45,12 +45,12 @@ jobs:
 
       - name: Debug AWS Credentials Inputs
         run: |
-      if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-        echo "AWS_ACCESS_KEY_ID is missing"
-      else
-        echo "AWS_ACCESS_KEY_ID is set"
-      fi
-        
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            echo "AWS_ACCESS_KEY_ID is missing"
+          else
+            echo "AWS_ACCESS_KEY_ID is set"
+          fi
+
       - name: Configure AWS Credentials (Dev)
         uses: aws-actions/configure-aws-credentials@v4
         with:
