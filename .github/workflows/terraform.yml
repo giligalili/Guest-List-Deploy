@@ -82,6 +82,10 @@ jobs:
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform init
 
+      - name: Terraform State List
+        working-directory: ${{ steps.find-dir.outputs.dir }}
+        run: terraform state list
+
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan' || github.event_name != 'workflow_dispatch'
         working-directory: ${{ steps.find-dir.outputs.dir }}
