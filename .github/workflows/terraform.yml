@@ -27,10 +27,11 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy to'
-        required: true
+        description: 'Environment to deploy to (leave empty to auto-detect from branch)'
+        required: false
         type: choice
         options: 
+          - ''  # Empty option for auto-detection
           - gili
           - sivan
           - sahar
@@ -45,7 +46,7 @@ on:
         type: choice
         options: [init, plan, apply, destroy]
       branch:
-        description: 'Branch to deploy from (optional - uses current branch if not specified)'
+        description: 'Branch to deploy from (leave empty to use current branch)'
         required: false
         type: string
 
@@ -61,53 +62,84 @@ jobs:
     outputs:
       environment: ${{ steps.set-env.outputs.environment }}
       workspace: ${{ steps.set-env.outputs.workspace }}
+      branch: ${{ steps.set-env.outputs.branch }}
     steps:
       - name: Determine Environment
         id: set-env
         run: |
-          # For workflow_dispatch, use the selected environment
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-            echo "workspace=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          else
-            # Map branches to environments
-            branch="${{ github.ref_name }}"
+          # Function to map branch to environment
+          map_branch_to_env() {
+            local branch=$1
             case "$branch" in
               gili-feature)
-                echo "environment=gili" >> $GITHUB_OUTPUT
-                echo "workspace=gili" >> $GITHUB_OUTPUT
+                echo "gili"
                 ;;
               sivan-feature)
-                echo "environment=sivan" >> $GITHUB_OUTPUT
-                echo "workspace=sivan" >> $GITHUB_OUTPUT
+                echo "sivan"
                 ;;
               sahar-feature)
-                echo "environment=sahar" >> $GITHUB_OUTPUT
-                echo "workspace=sahar" >> $GITHUB_OUTPUT
+                echo "sahar"
                 ;;
               dvir-feature)
-                echo "environment=dvir" >> $GITHUB_OUTPUT
-                echo "workspace=dvir" >> $GITHUB_OUTPUT
+                echo "dvir"
                 ;;
               dev)
-                echo "environment=dev" >> $GITHUB_OUTPUT
-                echo "workspace=dev" >> $GITHUB_OUTPUT
+                echo "dev"
                 ;;
               staging)
-                echo "environment=staging" >> $GITHUB_OUTPUT
-                echo "workspace=staging" >> $GITHUB_OUTPUT
+                echo "staging"
                 ;;
               main)
-                echo "environment=prod" >> $GITHUB_OUTPUT
-                echo "workspace=prod" >> $GITHUB_OUTPUT
+                echo "prod"
                 ;;
               *)
-                # Default to dev for any other branch
-                echo "environment=dev" >> $GITHUB_OUTPUT
-                echo "workspace=dev" >> $GITHUB_OUTPUT
+                echo "dev"
                 ;;
             esac
+          }
+          
+          # Determine which branch we're working with
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # For manual dispatch, use the branch input if provided
+            if [ -n "${{ github.event.inputs.branch }}" ]; then
+              working_branch="${{ github.event.inputs.branch }}"
+              echo "Using branch from input: $working_branch"
+            else
+              working_branch="${{ github.ref_name }}"
+              echo "Using current branch: $working_branch"
+            fi
+          else
+            # For push/PR events, use the ref name
+            working_branch="${{ github.ref_name }}"
+            echo "Using triggered branch: $working_branch"
           fi
+          
+          # Determine environment
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.environment }}" ]; then
+            # Use explicitly selected environment
+            environment="${{ github.event.inputs.environment }}"
+            echo "Using explicitly selected environment: $environment"
+          else
+            # Auto-detect from branch
+            environment=$(map_branch_to_env "$working_branch")
+            echo "Auto-detected environment from branch '$working_branch': $environment"
+          fi
+          
+          # Set outputs
+          echo "environment=$environment" >> $GITHUB_OUTPUT
+          echo "workspace=$environment" >> $GITHUB_OUTPUT
+          echo "branch=$working_branch" >> $GITHUB_OUTPUT
+          
+          # Summary
+          echo "========================================="
+          echo "Event Type: ${{ github.event_name }}"
+          echo "Branch Input: ${{ github.event.inputs.branch }}"
+          echo "Environment Input: ${{ github.event.inputs.environment }}"
+          echo "Current Ref: ${{ github.ref_name }}"
+          echo "========================================="
+          echo "Selected Branch: $working_branch"
+          echo "Selected Environment: $environment"
+          echo "========================================="
 
   terraform:
     needs: determine-environment
@@ -125,7 +157,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || github.ref }}
+          ref: ${{ needs.determine-environment.outputs.branch }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -145,7 +177,7 @@ jobs:
         run: |
           echo "🚀 Deploying to environment: ${{ needs.determine-environment.outputs.environment }}"
           echo "📦 Using workspace: ${{ needs.determine-environment.outputs.workspace }}"
-          echo "🌿 Branch: ${{ github.event.inputs.branch || github.ref_name }}"
+          echo "🌿 Branch: ${{ needs.determine-environment.outputs.branch }}"
           echo "🪣 State bucket: ${{ env.TF_STATE_BUCKET }}"
           echo "🔒 Lock table: ${{ env.TF_LOCK_TABLE }}"
 
@@ -344,7 +376,7 @@ jobs:
           echo "## 📊 Deployment Summary"
           echo "- **Environment**: ${{ needs.determine-environment.outputs.environment }}"
           echo "- **Workspace**: ${{ needs.determine-environment.outputs.workspace }}"
-          echo "- **Branch**: ${{ github.event.inputs.branch || github.ref_name }}"
+          echo "- **Branch**: ${{ needs.determine-environment.outputs.branch }}"
           echo "- **Action**: ${{ github.event.inputs.action || 'plan' }}"
           echo "- **State Bucket**: ${{ env.TF_STATE_BUCKET }}"
           echo "- **Lock Table**: ${{ env.TF_LOCK_TABLE }}"
