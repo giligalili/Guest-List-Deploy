@@ -24,6 +24,11 @@ on:
         default: 'plan'
         type: choice
         options: [init, plan, apply, destroy]
+      fast_plan:
+        description: 'Use fast plan (disable refresh) to speed up planning'
+        required: false
+        default: true
+        type: boolean
 
 env:
   TF_VERSION: "1.9.8"
@@ -41,12 +46,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
 
-    # מעביר ערכי var ל-Terraform דרך TF_VAR_ כדי למנוע את השגיאה על state_bucket_name
-    env:
-      TF_VAR_state_bucket_name: ${{ env.TF_STATE_BUCKET }}
-      TF_VAR_lock_table_name: ${{ env.TF_LOCK_TABLE }}
-      TF_VAR_aws_region: ${{ env.AWS_DEFAULT_REGION }}
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -56,7 +55,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Cache לפרוביידרים של Terraform להאצה
+      # Cache לפרוביידרים של Terraform
       - name: Enable TF plugin cache env
         run: echo "TF_PLUGIN_CACHE_DIR=${{ runner.temp }}/.terraform-plugin-cache" >> $GITHUB_ENV
 
@@ -101,6 +100,13 @@ jobs:
             fi
             echo "dir=$tfdir" >> $GITHUB_OUTPUT
           fi
+
+      # ייצוא TF_VAR_* מה-env העליון (ללא שימוש בביטויי ${{ env.* }})
+      - name: Export TF_VAR_* for Terraform variables
+        run: |
+          echo "TF_VAR_state_bucket_name=${TF_STATE_BUCKET}" >> $GITHUB_ENV
+          echo "TF_VAR_lock_table_name=${TF_LOCK_TABLE}" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=${AWS_DEFAULT_REGION}" >> $GITHUB_ENV
 
       # אופציונלי: יצירת המשאבים של ה-Remote state אם חסרים (idempotent)
       - name: Ensure S3 bucket and DynamoDB table exist (idempotent)
@@ -166,8 +172,14 @@ jobs:
           AWS_MAX_ATTEMPTS: "5"
         run: |
           set -e
-          # כדי לקצר ריצות: lock-timeout קצר, מקביליות מאוזנת; ניתן להוסיף -refresh=false אם אין חשש לדריפט
-          PLAN_FLAGS="-lock-timeout=60s -parallelism=7 -no-color -input=false -refresh=false"
+          PLAN_FLAGS="-lock-timeout=60s -parallelism=7 -no-color -input=false"
+          if [ "${{ github.event.inputs.fast_plan }}" = "true" ]; then
+            PLAN_FLAGS="$PLAN_FLAGS -refresh=false"
+            echo "Running FAST plan (refresh=false)"
+          else
+            echo "Running NORMAL plan (refresh=true)"
+          fi
+
           if [ -f "dev.tfvars" ]; then
             terraform plan $PLAN_FLAGS -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan-dev
           else
