@@ -354,34 +354,6 @@ jobs:
             terraform apply -auto-approve -var="environment=${environment}"
           fi
 
-        - name: Show LB URL and health check (curl)
-          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
-          working-directory: ${{ steps.find-dir.outputs.dir }}
-          shell: bash
-          run: |
-          set -euo pipefail
-          LB_HOST=$(terraform output -raw load_balancer_ip || echo "")
-          if [ -z "$LB_HOST" ]; then
-            echo "Failed to read Terraform output 'load_balancer_ip'."
-            exit 1
-          fi
-          URL="http://${LB_HOST}:9999/"
-          echo "Load Balancer URL: ${URL}"
-
-          ATTEMPTS=30
-          SLEEP=10
-          for i in $(seq 1 $ATTEMPTS); do
-            CODE=$(curl -sS -o /dev/null -w "%{http_code}" "$URL" || echo "000")
-            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 400 ]; then
-              echo "OK: HTTP $CODE from $URL"
-              exit 0
-            fi
-            echo "Attempt $i/$ATTEMPTS: HTTP $CODE - retrying in ${SLEEP}s..."
-            sleep $SLEEP
-          done
-          echo "ERROR: Service not healthy after $((ATTEMPTS*SLEEP)) seconds at $URL"
-          exit 1
-
       - name: Terraform Destroy
         if: github.event.inputs.action == 'destroy'
         working-directory: ${{ steps.find-dir.outputs.dir }}
