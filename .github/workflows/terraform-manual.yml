@@ -1,0 +1,72 @@
+name: Deploy Guest List Infrastructure - Manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: plan
+      
+env:
+  TF_VERSION: "1.9.8"
+  AWS_DEFAULT_REGION: us-east-1
+  TF_VAR_student_name: sivan
+
+jobs:
+  terraform-deploy:
+    name: Terraform ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+      
+      - name: Terraform Init
+        run: |
+          terraform init -input=false
+      
+      - name: Terraform Plan
+        if: github.event.inputs.action == 'plan'
+        run: |
+          terraform plan -var-file="sivan.tfvars" -input=false -no-color
+      
+      - name: Terraform Apply
+        if: github.event.inputs.action == 'apply'
+        run: |
+          terraform apply -var-file="sivan.tfvars" -auto-approve -input=false
+          
+      - name: Show Deployment Info
+        if: github.event.inputs.action == 'apply'
+        run: |
+          echo "=== Deployment Complete ==="
+          echo "Cluster Name: guestlist-sivan"
+          echo "Region: ${{ env.AWS_DEFAULT_REGION }}"
+          echo ""
+          echo "To configure kubectl:"
+          terraform output kubectl_config
+          echo ""
+          echo "Load Balancer URL will be available in a few minutes:"
+          terraform output load_balancer_ip || echo "Still creating..."
+      
+      - name: Terraform Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          terraform destroy -var-file="sivan.tfvars" -auto-approve -input=false

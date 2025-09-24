@@ -24,7 +24,7 @@ on:
         default: 'plan'
         type: choice
         options: [init, plan, apply, destroy]
-      fast_plan:            # <-- חדש: מצב plan מהיר (ללא refresh)
+      fast_plan:
         description: 'Use fast plan (disable refresh) to speed up planning'
         required: false
         default: true
@@ -55,7 +55,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ---- האצה: Cache לפרוביידרים של Terraform ----
+      # Cache לפרוביידרים של Terraform
       - name: Enable TF plugin cache env
         run: echo "TF_PLUGIN_CACHE_DIR=${{ runner.temp }}/.terraform-plugin-cache" >> $GITHUB_ENV
 
@@ -100,6 +100,13 @@ jobs:
             fi
             echo "dir=$tfdir" >> $GITHUB_OUTPUT
           fi
+
+      # ייצוא TF_VAR_* מה-env העליון (ללא שימוש בביטויי ${{ env.* }})
+      - name: Export TF_VAR_* for Terraform variables
+        run: |
+          echo "TF_VAR_state_bucket_name=${TF_STATE_BUCKET}" >> $GITHUB_ENV
+          echo "TF_VAR_lock_table_name=${TF_LOCK_TABLE}" >> $GITHUB_ENV
+          echo "TF_VAR_aws_region=${AWS_DEFAULT_REGION}" >> $GITHUB_ENV
 
       # אופציונלי: יצירת המשאבים של ה-Remote state אם חסרים (idempotent)
       - name: Ensure S3 bucket and DynamoDB table exist (idempotent)
@@ -156,18 +163,16 @@ jobs:
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform state list || true
 
-      # ---- Plan מהיר יותר: lock-timeout קצר, הקטנת parallelism, אופציה ל-refresh=false, ו-timeout ----
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan' || github.event_name != 'workflow_dispatch'
         timeout-minutes: 10
         working-directory: ${{ steps.find-dir.outputs.dir }}
         env:
-          AWS_RETRY_MODE: adaptive   # מפחית המתנות Backoff ארוכות
+          AWS_RETRY_MODE: adaptive
           AWS_MAX_ATTEMPTS: "5"
         run: |
           set -e
           PLAN_FLAGS="-lock-timeout=60s -parallelism=7 -no-color -input=false"
-          # אם fast_plan=true, מבטלים refresh כדי לחסוך זמן (להשתמש כשאתה יודע שאין דריפט חיצוני)
           if [ "${{ github.event.inputs.fast_plan }}" = "true" ]; then
             PLAN_FLAGS="$PLAN_FLAGS -refresh=false"
             echo "Running FAST plan (refresh=false)"
