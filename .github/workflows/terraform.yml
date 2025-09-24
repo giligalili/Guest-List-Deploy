@@ -73,7 +73,7 @@ jobs:
           region="${AWS_DEFAULT_REGION}"
           lock_table="${TF_LOCK_TABLE}"
 
-          # Default: don't create IAM in Terraform (use existing), and don't create backend in Terraform
+          # Default values
           manage_iam=false
           create_state_backend=false
 
@@ -87,7 +87,7 @@ jobs:
             manage_iam=true
           fi
 
-          # Check backend bucket; if missing, create it here (not in Terraform) to avoid backend chicken-and-egg
+          # Check backend bucket; if missing, create it here
           if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
             echo "Found existing S3 bucket: $bucket"
           else
@@ -119,17 +119,13 @@ jobs:
             aws dynamodb wait table-exists --table-name "$lock_table" --region "$region"
           fi
 
-          # Export TF_VAR_* so Terraform can either create or use existing
+          # ✅ Export TF_VAR_* so Terraform picks them up
           echo "TF_VAR_manage_iam=$manage_iam" >> "$GITHUB_ENV"
           echo "TF_VAR_cluster_role_name=$cluster_role" >> "$GITHUB_ENV"
           echo "TF_VAR_node_group_role_name=$node_role" >> "$GITHUB_ENV"
-
-          # Keep backend creation OUT of this stack; backend already exists now
           echo "TF_VAR_create_state_backend=$create_state_backend" >> "$GITHUB_ENV"
           echo "TF_VAR_state_bucket_name=$bucket" >> "$GITHUB_ENV"
           echo "TF_VAR_lock_table_name=$lock_table" >> "$GITHUB_ENV"
-
-          # Region var for provider if you use var.aws_region
           echo "TF_VAR_aws_region=$region" >> "$GITHUB_ENV"
 
       # Optional: cache Terraform providers to speed up plan
