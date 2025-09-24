@@ -2,7 +2,7 @@ name: Guest List Terraform Deploy (Dev Only)
 
 on:
   push:
-    branches: [sahar-feature]
+    branches: [gili-feature]
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -10,7 +10,7 @@ on:
       - '**.yaml'
       - '.github/workflows/**'
   pull_request:
-    branches: [sahar-feature]
+    branches: [gili-feature]
     paths:
       - '**.tf'
       - '**.tfvars'
@@ -26,17 +26,15 @@ on:
         options: [init, plan, apply, destroy]
 
 env:
-  TF_VERSION: "1.9.8"
+  TF_VERSION: "1.10.8"              # מותאם ל-required_version בקוד
   TF_LOG: INFO
   TF_IN_AUTOMATION: true
 
-  # אזור
   AWS_DEFAULT_REGION: us-east-1
 
-  # הגדרות Remote state (S3 backend)
+  # Remote state resources (לצורך יצירה/וולידציה בלבד)
   TF_STATE_BUCKET: guestlist-tfstate-bucket
-  TF_STATE_KEY: guestlist/dev/terraform.tfstate   # ניתן לשנות לפי repo/env
-  TF_LOCK_TABLE: terraform-locks                  # DynamoDB lock table
+  TF_LOCK_TABLE: terraform-locks
 
 jobs:
   terraform:
@@ -86,12 +84,12 @@ jobs:
             echo "dir=$tfdir" >> $GITHUB_OUTPUT
           fi
 
+      # אופציונלי: יצירת המשאבים של ה-Remote state אם חסרים (idempotent)
       - name: Ensure S3 bucket and DynamoDB table exist (idempotent)
         shell: bash
         run: |
           set -euo pipefail
 
-          # יצירת S3 bucket אם לא קיים
           if ! aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
             echo "Creating S3 bucket: $TF_STATE_BUCKET in $AWS_DEFAULT_REGION"
             if [ "$AWS_DEFAULT_REGION" = "us-east-1" ]; then
@@ -100,7 +98,6 @@ jobs:
               aws s3api create-bucket --bucket "$TF_STATE_BUCKET" --region "$AWS_DEFAULT_REGION" \
                 --create-bucket-configuration LocationConstraint="$AWS_DEFAULT_REGION"
             fi
-            # Best practices
             aws s3api put-bucket-versioning --bucket "$TF_STATE_BUCKET" --versioning-configuration Status=Enabled
             aws s3api put-public-access-block --bucket "$TF_STATE_BUCKET" \
               --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
@@ -110,7 +107,6 @@ jobs:
             echo "S3 bucket $TF_STATE_BUCKET already exists"
           fi
 
-          # יצירת טבלת DynamoDB לנעילה אם לא קיימת
           if ! aws dynamodb describe-table --table-name "$TF_LOCK_TABLE" >/dev/null 2>&1; then
             echo "Creating DynamoDB table: $TF_LOCK_TABLE"
             aws dynamodb create-table \
@@ -124,16 +120,16 @@ jobs:
             echo "DynamoDB table $TF_LOCK_TABLE already exists"
           fi
 
-      - name: Terraform Init (S3 backend)
+      - name: Terraform Init (S3 backend from code)
         if: github.event.inputs.action == 'init' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy' || github.event_name != 'workflow_dispatch'
         working-directory: ${{ steps.find-dir.outputs.dir }}
+        run: terraform init -input=false -reconfigure
+
+      - name: Select/Create workspace "dev"
+        working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          terraform init -input=false -reconfigure \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=${TF_STATE_KEY}" \
-            -backend-config="region=${AWS_DEFAULT_REGION}" \
-            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
-            -backend-config="encrypt=true"
+          terraform workspace select dev 2>/dev/null || terraform workspace new dev
+          terraform workspace show
 
       - name: Init completed (manual)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'init'
@@ -154,7 +150,8 @@ jobs:
           fi
 
       - name: Terraform Apply
-        if: github.event_inputs.action == 'apply'
+        if: github.event.inputs.action == 'apply'
+        id: tf-apply
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
           if [ -f "tfplan-dev" ]; then
@@ -171,7 +168,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # קריאת הכתובת מה-output של Terraform
           LB_HOST=$(terraform output -raw load_balancer_ip || echo "")
           if [ -z "$LB_HOST" ]; then
             echo "Failed to read Terraform output 'load_balancer_ip'."
@@ -180,7 +176,6 @@ jobs:
           URL="http://${LB_HOST}:9999/"
           echo "Load Balancer URL: ${URL}"
 
-          # בדיקת בריאות עם retry (עד ~5 דקות)
           ATTEMPTS=30
           SLEEP=10
           for i in $(seq 1 $ATTEMPTS); do
