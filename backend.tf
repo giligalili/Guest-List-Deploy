@@ -1,6 +1,5 @@
 terraform {
-  # ודא שה-Workflow רץ עם Terraform 1.10.x (למשל 1.10.8) או רכך את הדרישה.
-  required_version = ">= 1.10.0"
+  required_version = ">= 1.0.0, < 1.10.0"
 
   required_providers {
     aws = {
