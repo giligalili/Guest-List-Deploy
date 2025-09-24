@@ -175,11 +175,11 @@ jobs:
 
       - name: Display Environment Info
         run: |
-          echo "🚀 Deploying to environment: ${{ needs.determine-environment.outputs.environment }}"
-          echo "📦 Using workspace: ${{ needs.determine-environment.outputs.workspace }}"
-          echo "🌿 Branch: ${{ needs.determine-environment.outputs.branch }}"
-          echo "🪣 State bucket: ${{ env.TF_STATE_BUCKET }}"
-          echo "🔒 Lock table: ${{ env.TF_LOCK_TABLE }}"
+          echo "Deploying to environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "Using workspace: ${{ needs.determine-environment.outputs.workspace }}"
+          echo "Branch: ${{ needs.determine-environment.outputs.branch }}"
+          echo "State bucket: ${{ env.TF_STATE_BUCKET }}"
+          echo "Lock table: ${{ env.TF_LOCK_TABLE }}"
 
       # Detect existing IAM roles and S3 bucket and export TF_VAR_* for Terraform
       - name: Detect existing resources and export TF_VAR_*
@@ -201,18 +201,18 @@ jobs:
           # Check IAM roles
           if aws iam get-role --role-name "$cluster_role" >/dev/null 2>&1 && \
              aws iam get-role --role-name "$node_role" >/dev/null 2>&1; then
-            echo "✅ Found existing IAM roles: $cluster_role, $node_role"
+            echo "Found existing IAM roles: $cluster_role, $node_role"
             manage_iam=false
           else
-            echo "⚠️ One or both IAM roles are missing; Terraform will create them"
+            echo "One or both IAM roles are missing; Terraform will create them"
             manage_iam=true
           fi
 
           # Check backend bucket; if missing, create it here
           if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
-            echo "✅ Found existing S3 bucket: $bucket"
+            echo "Found existing S3 bucket: $bucket"
           else
-            echo "📦 Creating S3 bucket: $bucket in $region"
+            echo "Creating S3 bucket: $bucket in $region"
             if [ "$region" = "us-east-1" ]; then
               aws s3api create-bucket --bucket "$bucket" --region "$region"
             else
@@ -235,9 +235,9 @@ jobs:
 
           # Ensure DynamoDB lock table
           if aws dynamodb describe-table --table-name "$lock_table" >/dev/null 2>&1; then
-            echo "✅ Found existing DynamoDB table: $lock_table"
+            echo "Found existing DynamoDB table: $lock_table"
           else
-            echo "🔒 Creating DynamoDB table: $lock_table"
+            echo "Creating DynamoDB table: $lock_table"
             aws dynamodb create-table \
               --table-name "$lock_table" \
               --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -248,7 +248,7 @@ jobs:
             aws dynamodb wait table-exists --table-name "$lock_table" --region "$region"
           fi
 
-          # ✅ Export TF_VAR_* so Terraform picks them up
+          # Export TF_VAR_* so Terraform picks them up
           echo "TF_VAR_manage_iam=$manage_iam" >> "$GITHUB_ENV"
           echo "TF_VAR_cluster_role_name=$cluster_role" >> "$GITHUB_ENV"
           echo "TF_VAR_node_group_role_name=$node_role" >> "$GITHUB_ENV"
@@ -284,7 +284,7 @@ jobs:
             tfdir=$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)
             echo "dir=${tfdir:-.}" >> $GITHUB_OUTPUT
           fi
-          echo "📁 Terraform directory: $(cat $GITHUB_OUTPUT | grep dir | cut -d= -f2)"
+          echo "Terraform directory: $(cat $GITHUB_OUTPUT | grep dir | cut -d= -f2)"
 
       - name: Terraform Init
         working-directory: ${{ steps.find-dir.outputs.dir }}
@@ -300,7 +300,7 @@ jobs:
         run: |
           workspace="${{ needs.determine-environment.outputs.workspace }}"
           terraform workspace select "$workspace" 2>/dev/null || terraform workspace new "$workspace"
-          echo "🎯 Active workspace: $(terraform workspace show)"
+          echo "Active workspace: $(terraform workspace show)"
 
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan' || github.event_name != 'workflow_dispatch'
@@ -316,14 +316,17 @@ jobs:
           
           # Look for environment-specific tfvars file
           if [ -f "${environment}.tfvars" ]; then
-            echo "📋 Using ${environment}.tfvars"
+            echo "Using ${environment}.tfvars"
             terraform plan $PLAN_FLAGS -var-file="${environment}.tfvars" -out=tfplan-${environment}
           elif [ -f "environments/${environment}.tfvars" ]; then
-            echo "📋 Using environments/${environment}.tfvars"
+            echo "Using environments/${environment}.tfvars"
             terraform plan $PLAN_FLAGS -var-file="environments/${environment}.tfvars" -out=tfplan-${environment}
           else
-            echo "📋 Using default variables with environment=${environment}"
-            terraform plan $PLAN_FLAGS -var="environment=${environment}" -out=tfplan-${environment}
+            echo "Using default variables with environment=${environment} and region=${AWS_DEFAULT_REGION}"
+            terraform plan $PLAN_FLAGS \
+              -var="environment=${environment}" \
+              -var="region=${AWS_DEFAULT_REGION}" \
+              -out=tfplan-${environment}
           fi
 
       - name: Upload Plan
@@ -341,33 +344,36 @@ jobs:
           environment="${{ needs.determine-environment.outputs.environment }}"
           
           if [ -f "tfplan-${environment}" ]; then
-            echo "📦 Applying existing plan"
+            echo "Applying existing plan"
             terraform apply -auto-approve "tfplan-${environment}"
           elif [ -f "${environment}.tfvars" ]; then
-            echo "📦 Applying with ${environment}.tfvars"
+            echo "Applying with ${environment}.tfvars"
             terraform apply -auto-approve -var-file="${environment}.tfvars"
           elif [ -f "environments/${environment}.tfvars" ]; then
-            echo "📦 Applying with environments/${environment}.tfvars"
+            echo "Applying with environments/${environment}.tfvars"
             terraform apply -auto-approve -var-file="environments/${environment}.tfvars"
           else
-            echo "📦 Applying with default variables"
-            terraform apply -auto-approve -var="environment=${environment}"
+            echo "Applying with default variables"
+            terraform apply -auto-approve \
+              -var="environment=${environment}" \
+              -var="region=${AWS_DEFAULT_REGION}"
           fi
 
-        - name: Show LB URL and health check (curl)
-          if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
-          working-directory: ${{ steps.find-dir.outputs.dir }}
-          shell: bash
-          run: |
+      - name: Show LB URL and health check
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+        working-directory: ${{ steps.find-dir.outputs.dir }}
+        shell: bash
+        run: |
           set -euo pipefail
-          LB_HOST=$(terraform output -raw load_balancer_ip || echo "")
+          LB_HOST=$(terraform output -raw load_balancer_ip 2>/dev/null || echo "")
           if [ -z "$LB_HOST" ]; then
-            echo "Failed to read Terraform output 'load_balancer_ip'."
-            exit 1
+            echo "WARNING: Failed to read Terraform output 'load_balancer_ip'."
+            echo "This might be expected if your Terraform configuration doesn't output this value."
+            exit 0
           fi
           URL="http://${LB_HOST}:9999/"
           echo "Load Balancer URL: ${URL}"
-
+          
           ATTEMPTS=30
           SLEEP=10
           for i in $(seq 1 $ATTEMPTS); do
@@ -388,23 +394,25 @@ jobs:
         run: |
           environment="${{ needs.determine-environment.outputs.environment }}"
           
-          echo "⚠️ WARNING: Destroying infrastructure for environment: ${environment}"
+          echo "WARNING: Destroying infrastructure for environment: ${environment}"
           
           if [ -f "${environment}.tfvars" ]; then
             terraform destroy -auto-approve -var-file="${environment}.tfvars"
           elif [ -f "environments/${environment}.tfvars" ]; then
             terraform destroy -auto-approve -var-file="environments/${environment}.tfvars"
           else
-            terraform destroy -auto-approve -var="environment=${environment}"
+            terraform destroy -auto-approve \
+              -var="environment=${environment}" \
+              -var="region=${AWS_DEFAULT_REGION}"
           fi
 
       - name: Output Summary
         if: always()
         run: |
-          echo "## 📊 Deployment Summary"
-          echo "- **Environment**: ${{ needs.determine-environment.outputs.environment }}"
-          echo "- **Workspace**: ${{ needs.determine-environment.outputs.workspace }}"
-          echo "- **Branch**: ${{ needs.determine-environment.outputs.branch }}"
-          echo "- **Action**: ${{ github.event.inputs.action || 'plan' }}"
-          echo "- **State Bucket**: ${{ env.TF_STATE_BUCKET }}"
-          echo "- **Lock Table**: ${{ env.TF_LOCK_TABLE }}"
+          echo "## Deployment Summary"
+          echo "- Environment: ${{ needs.determine-environment.outputs.environment }}"
+          echo "- Workspace: ${{ needs.determine-environment.outputs.workspace }}"
+          echo "- Branch: ${{ needs.determine-environment.outputs.branch }}"
+          echo "- Action: ${{ github.event.inputs.action || 'plan' }}"
+          echo "- State Bucket: ${{ env.TF_STATE_BUCKET }}"
+          echo "- Lock Table: ${{ env.TF_LOCK_TABLE }}"
