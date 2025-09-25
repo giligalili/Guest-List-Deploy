@@ -3,7 +3,7 @@ name: Guest List Terraform Deploy (Dev Only)
 on:
   push:
     branches:
-      - '*-feature'  # Matches any student-feature branch
+	  - '*-feature'  # Matches any student-feature branch
       - dev
       - staging
       - main
@@ -14,7 +14,11 @@ on:
       - '**.yaml'
       - '.github/workflows/**'
   pull_request:
-    branches: [gili-feature]
+    branches:
+	  - '*-feature'
+      - dev
+      - staging
+      - main
     paths:
       - '**.tf'
       - '**.tfvars'
