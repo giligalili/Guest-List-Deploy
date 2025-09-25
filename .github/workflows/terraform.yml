@@ -165,6 +165,15 @@ jobs:
           audience: sts.amazonaws.com
           output-env-credentials: true
 
+      - name: Export Terraform toggles and resource names
+        shell: bash
+        run: |
+         echo "TF_VAR_manage_iam=false" >> $GITHUB_ENV
+         echo "TF_VAR_create_state_backend=false" >> $GITHUB_ENV
+         echo "TF_VAR_cluster_role_name=guestlist-cluster-cluster-role" >> $GITHUB_ENV
+         echo "TF_VAR_node_group_role_name=guestlist-cluster-node-group-role" >> $GITHUB_ENV
+         echo "TF_VAR_state_bucket_name=guestlist-tfstate-bucket" >> $GITHUB_ENV
+
       - name: Detect Terraform Directory
         id: find-dir
         shell: bash
