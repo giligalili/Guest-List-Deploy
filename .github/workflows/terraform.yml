@@ -3,35 +3,35 @@ name: Guest List Terraform Deploy (Dev Only)
 on:
   push:
     branches:
-      - '*-feature'  # Matches any student-feature branch
+      - "*-feature"
       - dev
       - staging
       - main
     paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '**.yml'
-      - '**.yaml'
-      - '.github/workflows/**'
+      - "**.tf"
+      - "**.tfvars"
+      - "**.yml"
+      - "**.yaml"
+      - ".github/workflows/**"
   pull_request:
     branches:
-        - '*-feature'
-        - dev
-        - staging
-        - main
+      - "*-feature"
+      - dev
+      - staging
+      - main
     paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '**.yml'
-      - '**.yaml'
+      - "**.tf"
+      - "**.tfvars"
+      - "**.yml"
+      - "**.yaml"
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to deploy to (leave empty to auto-detect from branch)'
+        description: "Environment to deploy to (leave empty to auto-detect from branch)"
         required: false
         type: choice
-        options: 
-          - ''  # Empty option for auto-detection
+        options:
+          - ""     # Empty option for auto-detection
           - gili
           - sivan
           - sahar
@@ -40,13 +40,17 @@ on:
           - staging
           - prod
       action:
-        description: 'Terraform action'
+        description: "Terraform action"
         required: true
-        default: 'plan'
+        default: "plan"
         type: choice
-        options: [init, plan, apply, destroy]
-      fast_plan:            # חדש: מצב plan מהיר (ללא refresh)
-        description: 'Use fast plan (disable refresh) to speed up planning'
+        options:
+          - init
+          - plan
+          - apply
+          - destroy
+      fast_plan:
+        description: "Use fast plan (disable refresh) to speed up planning"
         required: false
         default: true
         type: boolean
@@ -65,90 +69,59 @@ env:
   NODE_ROLE_NAME: guestlist-cluster-node-group-role
 
 jobs:
-    determine-environment:
-      runs-on: ubuntu-latest
-      outputs:
-        environment: ${{ steps.set-env.outputs.environment }}
-        workspace: ${{ steps.set-env.outputs.workspace }}
-        branch: ${{ steps.set-env.outputs.branch }}
-      steps:
-        - name: Determine Environment
-          id: set-env
-          run: |
-           # Function to map branch to environment
-           map_branch_to_env() {
-             local branch=$1
-             case "$branch" in
-               gili-feature)
-                 echo "gili"
-                 ;;
-               sivan-feature)
-                 echo "sivan"
-                 ;;
-               sahar-feature)
-                 echo "sahar"
-                 ;;
-               dvir-feature)
-                 echo "dvir"
-                 ;;
-               dev)
-                 echo "dev"
-                 ;;
-               staging)
-                 echo "staging"
-                 ;;
-               main)
-                 echo "prod"
-                 ;;
-               *)
-                 echo "dev"
-                 ;;
-             esac
-           }
-          
-           # Determine which branch we're working with
-           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-             # For manual dispatch, use the branch input if provided
-             if [ -n "${{ github.event.inputs.branch }}" ]; then
-               working_branch="${{ github.event.inputs.branch }}"
-               echo "Using branch from input: $working_branch"
-             else
-               working_branch="${{ github.ref_name }}"
-               echo "Using current branch: $working_branch"
-             fi
-           else
-             # For push/PR events, use the ref name
-             working_branch="${{ github.ref_name }}"
-             echo "Using triggered branch: $working_branch"
-           fi
-          
-           # Determine environment
-           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.environment }}" ]; then
-             # Use explicitly selected environment
-             environment="${{ github.event.inputs.environment }}"
-             echo "Using explicitly selected environment: $environment"
-           else
-             # Auto-detect from branch
-             environment=$(map_branch_to_env "$working_branch")
-             echo "Auto-detected environment from branch '$working_branch': $environment"
-           fi
-          
-           # Set outputs
-           echo "environment=$environment" >> $GITHUB_OUTPUT
-           echo "workspace=$environment" >> $GITHUB_OUTPUT
-           echo "branch=$working_branch" >> $GITHUB_OUTPUT
-          
-           # Summary
-           echo "========================================="
-           echo "Event Type: ${{ github.event_name }}"
-           echo "Branch Input: ${{ github.event.inputs.branch }}"
-           echo "Environment Input: ${{ github.event.inputs.environment }}"
-           echo "Current Ref: ${{ github.ref_name }}"
-           echo "========================================="
-           echo "Selected Branch: $working_branch"
-           echo "Selected Environment: $environment"
-           echo "========================================="
-		   
+  determine-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      workspace: ${{ steps.set-env.outputs.workspace }}
+      branch: ${{ steps.set-env.outputs.branch }}
+    steps:
+      - name: Determine Environment
+        id: set-env
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          map_branch_to_env() {
+            local branch=$1
+            case "$branch" in
+              gili-feature) echo "gili" ;;
+              sivan-feature) echo "sivan" ;;
+              sahar-feature) echo "sahar" ;;
+              dvir-feature) echo "dvir" ;;
+              dev) echo "dev" ;;
+              staging) echo "staging" ;;
+              main) echo "prod" ;;
+              *) echo "dev" ;;
+            esac
+          }
+
+          # Determine branch (for dispatch, the selected branch is github.ref_name)
+          working_branch="${{ github.ref_name }}"
+          echo "Using branch: $working_branch"
+
+          # Determine environment (allow manual override if provided)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.environment }}" ]; then
+            environment="${{ github.event.inputs.environment }}"
+            echo "Using explicitly selected environment: $environment"
+          else
+            environment="$(map_branch_to_env "$working_branch")"
+            echo "Auto-detected environment from branch '$working_branch': $environment"
+          fi
+
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          echo "workspace=$environment" >> "$GITHUB_OUTPUT"
+          echo "branch=$working_branch" >> "$GITHUB_OUTPUT"
+
+          echo "========================================="
+          echo "Event Type: ${{ github.event_name }}"
+          echo "Environment Input: ${{ github.event.inputs.environment }}"
+          echo "Current Ref: ${{ github.ref_name }}"
+          echo "========================================="
+          echo "Selected Branch: $working_branch"
+          echo "Selected Environment: $environment"
+          echo "========================================="
+
   terraform:
     needs: determine-environment
     runs-on: ubuntu-latest
@@ -163,9 +136,9 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ---- האצה: Cache לפרוביידרים של Terraform ----
+      # Cache Terraform providers
       - name: Enable TF plugin cache env
-        run: echo "TF_PLUGIN_CACHE_DIR=${{ runner.temp }}/.terraform-plugin-cache" >> $GITHUB_ENV
+        run: echo "TF_PLUGIN_CACHE_DIR=${{ runner.temp }}/.terraform-plugin-cache" >> "$GITHUB_ENV"
 
       - name: Cache Terraform providers
         uses: actions/cache@v4
@@ -194,19 +167,19 @@ jobs:
 
       - name: Detect Terraform Directory
         id: find-dir
+        shell: bash
         run: |
+          set -euo pipefail
           if [ -f "./main.tf" ]; then
-            echo "dir=." >> $GITHUB_OUTPUT
+            echo "dir=." >> "$GITHUB_OUTPUT"
           elif [ -f "./terraform/main.tf" ]; then
-            echo "dir=terraform" >> $GITHUB_OUTPUT
+            echo "dir=terraform" >> "$GITHUB_OUTPUT"
           elif [ -f "./infrastructure/main.tf" ]; then
-            echo "dir=infrastructure" >> $GITHUB_OUTPUT
+            echo "dir=infrastructure" >> "$GITHUB_OUTPUT"
           else
-            tfdir=$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)
-            if [ -z "$tfdir" ]; then
-              tfdir="."
-            fi
-            echo "dir=$tfdir" >> $GITHUB_OUTPUT
+            tfdir="$(find . -name "*.tf" -type f -exec dirname {} \; | head -1)"
+            if [ -z "$tfdir" ]; then tfdir="."; fi
+            echo "dir=$tfdir" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Detect existing IAM/S3 and export TF_VAR_*
@@ -273,8 +246,8 @@ jobs:
           echo "TF_VAR_state_bucket_name=$bucket" >> "$GITHUB_ENV"
           echo "TF_VAR_lock_table_name=$lock_table" >> "$GITHUB_ENV"
           echo "TF_VAR_aws_region=$region" >> "$GITHUB_ENV"
-		  
-	  - name: Display Environment Info
+
+      - name: Display Environment Info
         run: |
           echo "Deploying to environment: ${{ needs.determine-environment.outputs.environment }}"
           echo "Using workspace: ${{ needs.determine-environment.outputs.workspace }}"
@@ -283,7 +256,7 @@ jobs:
           echo "Lock table: ${{ env.TF_LOCK_TABLE }}"
 
       - name: Terraform Init (S3 backend from code)
-        if: github.event.inputs.action == 'init' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy' || github.event_name != 'workflow_dispatch'
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action != '' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform init -input=false -reconfigure
 
@@ -294,7 +267,7 @@ jobs:
           terraform workspace show
 
       - name: Init completed (manual)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'init'
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'init' }}
         run: echo "Terraform init completed successfully."
 
       - name: Terraform State List
@@ -302,7 +275,7 @@ jobs:
         run: terraform state list || true
 
       - name: Terraform Plan
-        if: github.event.inputs.action == 'plan' || github.event_name != 'workflow_dispatch'
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'plan' }}
         timeout-minutes: 10
         working-directory: ${{ steps.find-dir.outputs.dir }}
         env:
@@ -325,7 +298,7 @@ jobs:
           fi
 
       - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
         id: tf-apply
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
@@ -338,7 +311,7 @@ jobs:
           fi
 
       - name: Show LB URL and health check (curl)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
         shell: bash
         run: |
@@ -366,7 +339,7 @@ jobs:
           exit 1
 
       - name: Terraform Destroy
-        if: github.event.inputs.action == 'destroy'
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
           if [ -f "dev.tfvars" ]; then
