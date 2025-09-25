@@ -1,35 +1,18 @@
-name: Guest List Terraform Deploy (Multi-Env with GitHub Environments)
+name: Guest List Terraform Deploy (Multi-Env)
 
 on:
   push:
     branches:
-      - main
-      - staging
+      - '*-feature'
       - dev
-      - gili-feature
-      - dvir-feature
-      - sahar-feature
-      - sivan-feature
-    paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '**.yml'
-      - '**.yaml'
-      - '.github/workflows/**'
+      - staging
+      - main
   pull_request:
     branches:
-      - main
-      - staging
+      - '*-feature'
       - dev
-      - gili-feature
-      - dvir-feature
-      - sahar-feature
-      - sivan-feature
-    paths:
-      - '**.tf'
-      - '**.tfvars'
-      - '**.yml'
-      - '**.yaml'
+      - staging
+      - main
   workflow_dispatch:
     inputs:
       action:
@@ -39,10 +22,19 @@ on:
         type: choice
         options: [init, plan, apply, destroy]
       fast_plan:
-        description: 'Use fast plan (disable refresh) to speed up planning'
+        description: 'Use fast plan (disable refresh)'
         required: false
         default: true
         type: boolean
+      branch:
+        description: 'Branch override (manual dispatch)'
+        required: false
+        type: string
+      environment:
+        description: 'Explicit environment override'
+        required: false
+        type: choice
+        options: ['', gili, sivan, sahar, dvir, dev, staging, prod]
 
 env:
   TF_VERSION: "1.9.8"
@@ -51,11 +43,54 @@ env:
   AWS_DEFAULT_REGION: us-east-1
 
 jobs:
-  terraform:
+  determine-environment:
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      workspace: ${{ steps.set-env.outputs.workspace }}
+      branch: ${{ steps.set-env.outputs.branch }}
+    steps:
+      - name: Determine Environment
+        id: set-env
+        run: |
+          map_branch_to_env() {
+            case "$1" in
+              gili-feature) echo "gili" ;;
+              sivan-feature) echo "sivan" ;;
+              sahar-feature) echo "sahar" ;;
+              dvir-feature) echo "dvir" ;;
+              dev) echo "dev" ;;
+              staging) echo "staging" ;;
+              main) echo "prod" ;;
+              *) echo "dev" ;;
+            esac
+          }
+          # Branch detection
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.branch }}" ]; then
+            working_branch="${{ github.event.inputs.branch }}"
+          else
+            working_branch="${{ github.ref_name }}"
+          fi
+          # Env detection
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.environment }}" ]; then
+            environment="${{ github.event.inputs.environment }}"
+          else
+            environment=$(map_branch_to_env "$working_branch")
+          fi
+          echo "environment=$environment" >> $GITHUB_OUTPUT
+          echo "workspace=$environment" >> $GITHUB_OUTPUT
+          echo "branch=$working_branch" >> $GITHUB_OUTPUT
 
-    # ✅ job יקבל environment אוטומטית לפי ה-branch
-    environment: ${{ steps.detect-env.outputs.env }}
+  terraform:
+    needs: determine-environment
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+
+    env:
+      TF_STATE_BUCKET: guestlist-tfstate-${{ needs.determine-environment.outputs.environment }}
+      TF_LOCK_TABLE: terraform-locks-${{ needs.determine-environment.outputs.environment }}
+      CLUSTER_ROLE_NAME: guestlist-cluster-${{ needs.determine-environment.outputs.environment }}-role
+      NODE_ROLE_NAME: guestlist-node-${{ needs.determine-environment.outputs.environment }}-role
 
     steps:
       - name: Checkout repo
@@ -66,36 +101,7 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ----------------------------------------------------------
-      # Detect environment from branch
-      # ----------------------------------------------------------
-      - name: Detect environment by branch
-        id: detect-env
-        run: |
-          branch="${GITHUB_REF##*/}"
-          case "$branch" in
-            main)        echo "env=prod"    >> $GITHUB_OUTPUT ;;
-            staging)     echo "env=staging" >> $GITHUB_OUTPUT ;;
-            dev)         echo "env=dev"     >> $GITHUB_OUTPUT ;;
-            gili-feature)  echo "env=gili"  >> $GITHUB_OUTPUT ;;
-            dvir-feature)  echo "env=dvir"  >> $GITHUB_OUTPUT ;;
-            sahar-feature) echo "env=sahar" >> $GITHUB_OUTPUT ;;
-            sivan-feature) echo "env=sivan" >> $GITHUB_OUTPUT ;;
-            *) echo "env=dev" >> $GITHUB_OUTPUT ;; # default
-          esac
-
-      - name: Export environment-specific vars
-        run: |
-          echo "ENVIRONMENT=${{ steps.detect-env.outputs.env }}" >> $GITHUB_ENV
-          echo "TF_STATE_BUCKET=guestlist-tfstate-${{ steps.detect-env.outputs.env }}" >> $GITHUB_ENV
-          echo "TF_LOCK_TABLE=tf-locks-${{ steps.detect-env.outputs.env }}" >> $GITHUB_ENV
-          echo "CLUSTER_ROLE_NAME=guestlist-${{ steps.detect-env.outputs.env }}-cluster-role" >> $GITHUB_ENV
-          echo "NODE_ROLE_NAME=guestlist-${{ steps.detect-env.outputs.env }}-node-role" >> $GITHUB_ENV
-
-      # ----------------------------------------------------------
-      # Cache Terraform providers
-      # ----------------------------------------------------------
-      - name: Enable TF plugin cache
+      - name: Enable TF plugin cache env
         run: echo "TF_PLUGIN_CACHE_DIR=${{ runner.temp }}/.terraform-plugin-cache" >> $GITHUB_ENV
 
       - name: Cache Terraform providers
@@ -106,13 +112,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-tfplugins-
 
-      # ✅ AWS credentials יגיעו מה-secrets של ה-Environment שנבחר
+      - name: Debug AWS Credentials Inputs
+        run: |
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            echo "AWS_ACCESS_KEY_ID is missing"
+          else
+            echo "AWS_ACCESS_KEY_ID is set"
+          fi
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_DEFAULT_REGION }}
+          audience: sts.amazonaws.com
+          output-env-credentials: true
 
       - name: Detect Terraform Directory
         id: find-dir
@@ -131,10 +146,7 @@ jobs:
             echo "dir=$tfdir" >> $GITHUB_OUTPUT
           fi
 
-      # ----------------------------------------------------------
-      # IAM/S3/DynamoDB auto-detect & create
-      # ----------------------------------------------------------
-      - name: Detect existing IAM/S3/DynamoDB and export TF_VAR_*
+      - name: Detect existing IAM/S3 and export TF_VAR_*
         shell: bash
         run: |
           set -euo pipefail
@@ -144,23 +156,17 @@ jobs:
           region="${AWS_DEFAULT_REGION}"
           lock_table="${TF_LOCK_TABLE}"
           manage_iam=false
-          create_state_backend=false
-
-          # IAM roles
+          # IAM
           if aws iam get-role --role-name "$cluster_role" >/dev/null 2>&1 && \
              aws iam get-role --role-name "$node_role" >/dev/null 2>&1; then
-            echo "Found existing IAM roles: $cluster_role, $node_role"
-            manage_iam=false
+            echo "Found IAM roles"
           else
-            echo "One or both IAM roles are missing; Terraform will create them"
+            echo "Missing IAM roles"
             manage_iam=true
           fi
-
           # S3 bucket
-          if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
-            echo "S3 bucket $bucket already exists"
-          else
-            echo "Creating S3 bucket: $bucket in $region"
+          if ! aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+            echo "Creating S3 bucket: $bucket"
             if [ "$region" = "us-east-1" ]; then
               aws s3api create-bucket --bucket "$bucket" --region "$region"
             else
@@ -168,16 +174,9 @@ jobs:
                 --create-bucket-configuration LocationConstraint="$region"
             fi
             aws s3api put-bucket-versioning --bucket "$bucket" --versioning-configuration Status=Enabled
-            aws s3api put-public-access-block --bucket "$bucket" \
-              --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-            aws s3api put-bucket-encryption --bucket "$bucket" \
-              --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
           fi
-
           # DynamoDB
-          if aws dynamodb describe-table --table-name "$lock_table" >/dev/null 2>&1; then
-            echo "DynamoDB table $lock_table already exists"
-          else
+          if ! aws dynamodb describe-table --table-name "$lock_table" >/dev/null 2>&1; then
             echo "Creating DynamoDB table: $lock_table"
             aws dynamodb create-table \
               --table-name "$lock_table" \
@@ -187,56 +186,61 @@ jobs:
               --region "$region"
             aws dynamodb wait table-exists --table-name "$lock_table" --region "$region"
           fi
-
-          # Export vars for Terraform
+          # Export
           echo "TF_VAR_manage_iam=$manage_iam" >> "$GITHUB_ENV"
           echo "TF_VAR_cluster_role_name=$cluster_role" >> "$GITHUB_ENV"
           echo "TF_VAR_node_group_role_name=$node_role" >> "$GITHUB_ENV"
-          echo "TF_VAR_create_state_backend=$create_state_backend" >> "$GITHUB_ENV"
           echo "TF_VAR_state_bucket_name=$bucket" >> "$GITHUB_ENV"
           echo "TF_VAR_lock_table_name=$lock_table" >> "$GITHUB_ENV"
           echo "TF_VAR_aws_region=$region" >> "$GITHUB_ENV"
 
-      # ----------------------------------------------------------
-      # Terraform steps
-      # ----------------------------------------------------------
       - name: Terraform Init
-        if: github.event.inputs.action == 'init' || github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply' || github.event.inputs.action == 'destroy' || github.event_name != 'workflow_dispatch'
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform init -input=false -reconfigure
 
       - name: Select/Create workspace
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          terraform workspace select ${{ env.ENVIRONMENT }} 2>/dev/null || terraform workspace new ${{ env.ENVIRONMENT }}
+          terraform workspace select ${{ needs.determine-environment.outputs.workspace }} 2>/dev/null \
+            || terraform workspace new ${{ needs.determine-environment.outputs.workspace }}
           terraform workspace show
+
+      - name: Terraform State List
+        working-directory: ${{ steps.find-dir.outputs.dir }}
+        run: terraform state list || true
 
       - name: Terraform Plan
         if: github.event.inputs.action == 'plan' || github.event_name != 'workflow_dispatch'
         timeout-minutes: 10
         working-directory: ${{ steps.find-dir.outputs.dir }}
+        env:
+          AWS_RETRY_MODE: adaptive
+          AWS_MAX_ATTEMPTS: "5"
         run: |
-          set -e
           PLAN_FLAGS="-lock-timeout=60s -parallelism=7 -no-color -input=false"
           if [ "${{ github.event.inputs.fast_plan }}" = "true" ]; then
             PLAN_FLAGS="$PLAN_FLAGS -refresh=false"
-            echo "Running FAST plan (refresh=false)"
           fi
-          terraform plan $PLAN_FLAGS -var="environment=${{ env.ENVIRONMENT }}" -var="aws_region=${{ env.AWS_DEFAULT_REGION }}" -out=tfplan-${{ env.ENVIRONMENT }}
+          if [ -f "${{ needs.determine-environment.outputs.environment }}.tfvars" ]; then
+            terraform plan $PLAN_FLAGS -var-file="${{ needs.determine-environment.outputs.environment }}.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan
+          else
+            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.environment }}" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan
+          fi
 
       - name: Terraform Apply
         if: github.event.inputs.action == 'apply'
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          if [ -f "tfplan-${{ env.ENVIRONMENT }}" ]; then
-            terraform apply "tfplan-${{ env.ENVIRONMENT }}"
+          if [ -f "tfplan" ]; then
+            terraform apply "tfplan"
+          elif [ -f "${{ needs.determine-environment.outputs.environment }}.tfvars" ]; then
+            terraform apply -var-file="${{ needs.determine-environment.outputs.environment }}.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           else
-            terraform apply -var="environment=${{ env.ENVIRONMENT }}" -var="aws_region=${{ env.AWS_DEFAULT_REGION }}" -auto-approve
+            terraform apply -var="environment=${{ needs.determine-environment.outputs.environment }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           fi
 
-      # ✅ בדיקת בריאות Load Balancer אחרי apply
       - name: Show LB URL and health check (curl)
-        if: github.event.inputs.action == 'apply'
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
         working-directory: ${{ steps.find-dir.outputs.dir }}
         shell: bash
         run: |
@@ -267,4 +271,8 @@ jobs:
         if: github.event.inputs.action == 'destroy'
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          terraform destroy -var="environment=${{ env.ENVIRONMENT }}" -var="aws_region=${{ env.AWS_DEFAULT_REGION }}" -auto-approve
+          if [ -f "${{ needs.determine-environment.outputs.environment }}.tfvars" ]; then
+            terraform destroy -var-file="${{ needs.determine-environment.outputs.environment }}.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+          else
+            terraform destroy -var="environment=${{ needs.determine-environment.outputs.environment }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+          fi
