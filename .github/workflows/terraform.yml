@@ -1,4 +1,4 @@
-name: Guest List Terraform Deploy (Multi-Env)
+name: Guest List Terraform Deploy (Multi-Env with GitHub Environments)
 
 on:
   push:
@@ -54,6 +54,9 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
 
+    # ✅ job יקבל environment אוטומטית לפי ה-branch
+    environment: ${{ steps.detect-env.outputs.env }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -83,37 +86,9 @@ jobs:
 
       - name: Export environment-specific vars
         run: |
-          case "${{ steps.detect-env.outputs.env }}" in
-            prod)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-prod" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-prod" >> $GITHUB_ENV
-              ;;
-            staging)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-staging" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-staging" >> $GITHUB_ENV
-              ;;
-            dev)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-dev" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-dev" >> $GITHUB_ENV
-              ;;
-            gili)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-gili" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-gili" >> $GITHUB_ENV
-              ;;
-            dvir)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-dvir" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-dvir" >> $GITHUB_ENV
-              ;;
-            sahar)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-sahar" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-sahar" >> $GITHUB_ENV
-              ;;
-            sivan)
-              echo "TF_STATE_BUCKET=guestlist-tfstate-sivan" >> $GITHUB_ENV
-              echo "TF_LOCK_TABLE=tf-locks-sivan" >> $GITHUB_ENV
-              ;;
-          esac
           echo "ENVIRONMENT=${{ steps.detect-env.outputs.env }}" >> $GITHUB_ENV
+          echo "TF_STATE_BUCKET=guestlist-tfstate-${{ steps.detect-env.outputs.env }}" >> $GITHUB_ENV
+          echo "TF_LOCK_TABLE=tf-locks-${{ steps.detect-env.outputs.env }}" >> $GITHUB_ENV
           echo "CLUSTER_ROLE_NAME=guestlist-${{ steps.detect-env.outputs.env }}-cluster-role" >> $GITHUB_ENV
           echo "NODE_ROLE_NAME=guestlist-${{ steps.detect-env.outputs.env }}-node-role" >> $GITHUB_ENV
 
@@ -131,6 +106,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-tfplugins-
 
+      # ✅ AWS credentials יגיעו מה-secrets של ה-Environment שנבחר
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -258,11 +234,9 @@ jobs:
             terraform apply -var="environment=${{ env.ENVIRONMENT }}" -var="aws_region=${{ env.AWS_DEFAULT_REGION }}" -auto-approve
           fi
 
-      # ----------------------------------------------------------
-      # ✅ TEST בתוך אותו workflow: בדיקת Load Balancer
-      # ----------------------------------------------------------
+      # ✅ בדיקת בריאות Load Balancer אחרי apply
       - name: Show LB URL and health check (curl)
-        if: github.event.inputs.action == 'apply' || github.event_name != 'workflow_dispatch'
+        if: github.event.inputs.action == 'apply'
         working-directory: ${{ steps.find-dir.outputs.dir }}
         shell: bash
         run: |
