@@ -1,6 +1,10 @@
 # kubernetes.tf
 locals {
-  full_image = "${var.image_repo}:${var.image_tag}"
+  deploy_manifest = templatefile("${path.module}/guestlistapideploy.yaml.tftpl", {
+    image_repo = var.image_repo
+    image_tag  = var.image_tag
+    namespace  = var.namespace
+  })
 }
 
 # Kubernetes resources for Guest List API deployment

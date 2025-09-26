@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: guestlistdeploy
+  name: guestlistapi
   namespace: ${namespace}
-  labels:
-    app: guestlist-deploy
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
-      the-app-is: guestlist-pod
+      app: guestlistapi
   template:
     metadata:
       labels:
-        the-app-is: guestlist-pod
+        app: guestlistapi
     spec:
       containers:
-      - name: guestlistcontainer
-        image: ${image_repo}:${image_tag}
-        imagePullPolicy: Always
+        - name: guestlistapi
+          image: ${image_repo}:${image_tag}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 1111
