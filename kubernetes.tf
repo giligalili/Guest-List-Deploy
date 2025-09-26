@@ -1,4 +1,8 @@
 # kubernetes.tf
+locals {
+  full_image = "${var.image_repo}:${var.image_tag}"
+}
+
 # Kubernetes resources for Guest List API deployment
 
 # Namespace for the application
@@ -33,14 +37,6 @@ resource "kubernetes_deployment" "guestlist_api" {
       student     = var.student_name
     }
   }
-
-locals {
-  deploy_manifest = templatefile("${path.module}/guestlistapideploy.yaml.tftpl", {
-    image_repo = var.image_repo
-    image_tag  = var.image_tag
-    namespace  = var.namespace
-  })
-}
 
   spec {
     replicas = var.app_replicas
