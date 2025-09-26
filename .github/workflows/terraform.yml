@@ -62,7 +62,8 @@ env:
 
   AWS_DEFAULT_REGION: us-east-1
 
-  TF_STATE_BUCKET: guestlist-tfstate-bucket
+  ENVIRONMENT: ${{ github.ref_name }}
+  TF_STATE_BUCKET: guestlist-tfstate-${{ github.ref_name }}
   TF_LOCK_TABLE: terraform-locks
 
   CLUSTER_ROLE_NAME: guestlist-cluster-cluster-role
@@ -311,7 +312,11 @@ jobs:
 
       - name: Terraform Init (S3 backend from code)
         working-directory: ${{ steps.find-dir.outputs.dir }}
-        run: terraform init -input=false -reconfigure
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=envs/${ENVIRONMENT}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION:-us-east-1}"
 
       - name: Select/Create workspace
         working-directory: ${{ steps.find-dir.outputs.dir }}
@@ -396,6 +401,33 @@ jobs:
           done
           echo "ERROR: Service not healthy after $((ATTEMPTS*SLEEP)) seconds at $URL"
           exit 1
+
+      - name: Export kubeconfig and upload to S3
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
+        working-directory: ${{ steps.find-dir.outputs.dir }}  
+        env:
+          # pass through (may be empty); default in the script
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: ${{ env.ENVIRONMENT }}
+          TF_STATE_BUCKET: ${{ env.TF_STATE_BUCKET }}
+          KUBECONFIG_PATH: kubeconfig-${{ env.ENVIRONMENT }}.yaml
+        run: |
+          set -euo pipefail
+          REGION="${AWS_REGION:-us-east-1}"   # <— fallback happens here, safely
+
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+
+          aws eks update-kubeconfig \
+            --name "$CLUSTER_NAME" \
+            --region "$REGION" \
+            --kubeconfig "$KUBECONFIG_PATH"
+
+          aws s3 cp "$KUBECONFIG_PATH" \
+            "s3://${TF_STATE_BUCKET}/eks/${ENVIRONMENT}/kubeconfig.yaml" \
+            --sse AES256
+
+          aws s3 presign "s3://${TF_STATE_BUCKET}/eks/${ENVIRONMENT}/kubeconfig.yaml" \
+            --expires-in 3600 | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Terraform Destroy
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
