@@ -415,7 +415,7 @@ jobs:
           set -euo pipefail
           REGION="${AWS_REGION:-us-east-1}"   # <— fallback happens here, safely
 
-          CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
 
           aws eks update-kubeconfig \
             --name "$CLUSTER_NAME" \
