@@ -188,37 +188,73 @@ jobs:
               --key-schema AttributeName=LockID,KeyType=HASH \
               --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
           fi
-          
+
           # IAM Role (Cluster Role)
           CLUSTER_ROLE="${CLUSTER_ROLE_NAME}"
           if aws iam get-role --role-name "$CLUSTER_ROLE" 2>/dev/null; then
             echo "IAM Role '$CLUSTER_ROLE' exists."
+            # Always update the trust policy for safety
+            aws iam update-assume-role-policy --role-name "$CLUSTER_ROLE" --policy-document '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "eks.amazonaws.com"
+                  },
+                  "Action": "sts:AssumeRole"
+                }
+              ]
+            }'
           else
             echo "Creating IAM Role '$CLUSTER_ROLE'..."
             aws iam create-role --role-name "$CLUSTER_ROLE" \
               --assume-role-policy-document '{
-            "Version": "2012-10-17",
-            "Statement": [
-              {
-                "Effect": "Allow",
-                "Principal": {
-                  "Service": "eks.amazonaws.com"
-                },
-                "Action": "sts:AssumeRole"
-              }
-            ]
-          }'
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "eks.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }'
           fi
-
 
           # IAM Role (Node Group Role)
           NODE_ROLE="${NODE_ROLE_NAME}"
           if aws iam get-role --role-name "$NODE_ROLE" 2>/dev/null; then
             echo "IAM Role '$NODE_ROLE' exists."
+            # Always update the trust policy for safety
+            aws iam update-assume-role-policy --role-name "$NODE_ROLE" --policy-document '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "ec2.amazonaws.com"
+                  },
+                  "Action": "sts:AssumeRole"
+                }
+              ]
+            }'
           else
             echo "Creating IAM Role '$NODE_ROLE'..."
             aws iam create-role --role-name "$NODE_ROLE" \
-              --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+              --assume-role-policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }'
           fi
 
       - name: Export Terraform toggles and resource names
