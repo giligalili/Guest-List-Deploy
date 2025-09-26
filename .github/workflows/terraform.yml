@@ -62,7 +62,7 @@ env:
 
   AWS_DEFAULT_REGION: us-east-1
 
-  TF_STATE_BUCKET: guestlist-tfstate-${{ env.ENVIRONMENT }}
+  TF_STATE_BUCKET: guestlist-tfstate-${{ github.ref_name }}
   TF_LOCK_TABLE: terraform-locks
 
   CLUSTER_ROLE_NAME: guestlist-cluster-cluster-role
