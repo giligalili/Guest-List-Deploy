@@ -520,14 +520,14 @@ jobs:
               -auto-approve
           fi
 
-      - name: K8s diagnostics
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'apply' }}
-        run: |
-          kubectl -n guestlist get deploy,rs,pods -o wide
-          kubectl -n guestlist describe deploy guestlist-deployment || true
-          kubectl -n guestlist describe pods -l app=guestlist-api || true
-          kubectl -n guestlist get events --sort-by=.lastTimestamp | tail -n 100 || true
-          kubectl -n guestlist logs deploy/guestlist-deployment --tail=200 || true
+      #- name: K8s diagnostics
+        #if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'apply' }}
+        #run: |
+          #kubectl -n guestlist get deploy,rs,pods -o wide
+          #kubectl -n guestlist describe deploy guestlist-deployment || true
+          #kubectl -n guestlist describe pods -l app=guestlist-api || true
+          #kubectl -n guestlist get events --sort-by=.lastTimestamp | tail -n 100 || true
+          #kubectl -n guestlist logs deploy/guestlist-deployment --tail=200 || true
 
       - name: Show LB URL and health check (curl)
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
