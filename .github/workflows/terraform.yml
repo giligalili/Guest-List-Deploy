@@ -458,33 +458,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Ensure jq exists
-          if ! command -v jq >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y jq
+
+          # 1) Only remove old address if it actually exists in state
+          if terraform state list | grep -q '^kubernetes_namespace\.ns$'; then
+            terraform state rm kubernetes_namespace.ns
+          else
+            echo "State has no kubernetes_namespace.ns — nothing to remove."
           fi
 
+          # 2) Check cluster for namespace AFTER kubeconfig is set
           if kubectl get ns guestlist >/dev/null 2>&1; then
-            phase="$(kubectl get ns guestlist -o jsonpath='{.status.phase}')"
-            if [ "$phase" = "Terminating" ]; then
-              echo "Namespace 'guestlist' is Terminating; clearing finalizers…"
-              kubectl get ns guestlist -o json | jq '.spec.finalizers=[]' \
-                | kubectl replace --raw /api/v1/namespaces/guestlist/finalize -f -
-              # Wait briefly for it to settle (usually instant after finalizer removal)
-              sleep 3
-            fi
-
-            # Drop the old state address if it exists, to stop TF from deleting the NS
-            terraform state rm kubernetes_namespace.ns || true
-
-            # Import the live NS to the new address if not already imported
+            echo "Namespace 'guestlist' exists in the cluster."
+            # Import to new address if not already imported
             if ! terraform state show kubernetes_namespace.guestlist >/dev/null 2>&1; then
               terraform import kubernetes_namespace.guestlist guestlist
+            else
+              echo "Namespace already tracked as kubernetes_namespace.guestlist."
             fi
           else
             echo "Namespace 'guestlist' not found; Terraform will create it."
-            # Also make sure old state address is gone so TF doesn't try deleting something that isn't there
-            terraform state rm kubernetes_namespace.ns || true
           fi
+
 ###### Temp End ######
 
       - name: Terraform Plan
