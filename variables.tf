@@ -93,3 +93,8 @@ variable "aws_secret_access_key" {
   sensitive   = true
   description = "App AWS secret key (same user as TF backend)"
 }
+variable "app_iam_user_name" {
+  type        = string
+  description = "Existing IAM user to attach app DynamoDB policy"
+  default     = ""   # leave empty to skip attachment
+}

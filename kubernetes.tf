@@ -68,60 +68,49 @@ resource "kubernetes_deployment" "guestlist_api" {
       }
 
       spec {
-        container {
-          image = local.full_image
-          name  = "guestlist-container"
-          image_pull_policy = "Always"
-          port {
-            container_port = 1111
-            protocol       = "TCP"
-          }
-          # --- AWS + DynamoDB envs from the Secret ---
-          env {
-            name = "AWS_ACCESS_KEY_ID"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret.guestlist_aws.metadata[0].name
-                key  = "AWS_ACCESS_KEY_ID"
-              }
+          container {
+            name               = "guestlist-container"
+            image              = local.full_image
+            image_pull_policy  = "Always"
+
+            # --- AWS + DynamoDB envs from Secret ---
+            env {
+              name = "AWS_ACCESS_KEY_ID"
+              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "AWS_ACCESS_KEY_ID" } }
+            }
+            env {
+              name = "AWS_SECRET_ACCESS_KEY"
+              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "AWS_SECRET_ACCESS_KEY" } }
+            }
+            env {
+              name = "AWS_DEFAULT_REGION"
+              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "AWS_DEFAULT_REGION" } }
+            }
+            env {
+              name = "DDB_TABLE"
+              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "DDB_TABLE" } }
+            }
+
+            port { container_port = 1111 }
+
+            resources {
+              limits  = { cpu = "250m", memory = "256Mi" }
+              requests= { cpu = "100m", memory = "128Mi" }
+            }
+
+            liveness_probe {
+              http_get { path = "/healthz"; port = 1111 }
+              initial_delay_seconds = 10
+              period_seconds        = 10
+            }
+
+            readiness_probe {
+              http_get { path = "/readyz"; port = 1111 }
+              initial_delay_seconds = 5
+              period_seconds        = 5
             }
           }
 
-          env {
-            name = "AWS_SECRET_ACCESS_KEY"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret.guestlist_aws.metadata[0].name
-                key  = "AWS_SECRET_ACCESS_KEY"
-              }
-            }
-          }
-
-          env {
-            name = "AWS_DEFAULT_REGION"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret.guestlist_aws.metadata[0].name
-                key  = "AWS_DEFAULT_REGION"
-              }
-            }
-          }
-
-          env {
-            name = "DDB_TABLE"
-            value_from {
-              secret_key_ref {
-                name = kubernetes_secret.guestlist_aws.metadata[0].name
-                key  = "DDB_TABLE"
-              }
-            }
-          }
-
-          port {
-            container_port = 1111
-            protocol       = "TCP"
-          }
-        }
           # Health checks
           liveness_probe {
             http_get {

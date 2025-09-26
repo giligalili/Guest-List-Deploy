@@ -163,6 +163,80 @@ jobs:
           audience: sts.amazonaws.com
           output-env-credentials: true
 
+      - name: Ensure app DynamoDB IAM policy is created and attached to current user
+        shell: bash
+        env:
+          AWS_REGION: us-east-1
+          DDB_TABLE_NAME: ${{ vars.DDB_TABLE_NAME }}   # set this repo variable (e.g., GuestList)
+        run: |
+          set -euo pipefail
+
+          # Who am I? (derived from your environment secrets)
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          USER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
+
+          if [[ "$USER_ARN" != *":user/"* ]]; then
+            echo "This credentials set is not an IAM user (ARN: $USER_ARN). Skipping user attachment."
+            exit 0
+          fi
+
+          USER_NAME="${USER_ARN##*/}"
+          POLICY_NAME="guestlist-app-ddb-rw"
+          POLICY_DOC="$(mktemp)"
+
+          # Build policy JSON for the single app table
+          cat > "$POLICY_DOC" <<'JSON'
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "DDBAppTableRW",
+                "Effect": "Allow",
+                "Action": [
+                  "dynamodb:DescribeTable",
+                  "dynamodb:Query",
+                  "dynamodb:Scan",
+                  "dynamodb:GetItem",
+                  "dynamodb:PutItem",
+                  "dynamodb:UpdateItem",
+                  "dynamodb:DeleteItem",
+                  "dynamodb:BatchGetItem",
+                  "dynamodb:BatchWriteItem"
+                ],
+                "Resource": "__TABLE_ARN__"
+              }
+            ]
+          }
+          JSON
+
+          TABLE_ARN="arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/${DDB_TABLE_NAME}"
+          sed -i "s#__TABLE_ARN__#${TABLE_ARN}#g" "$POLICY_DOC"
+
+          # Find or create the customer-managed policy
+          EXISTING_ARN="$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='${POLICY_NAME}'].Arn | [0]" --output text)"
+          if [[ "$EXISTING_ARN" == "None" || -z "$EXISTING_ARN" ]]; then
+            echo "Creating policy ${POLICY_NAME} for ${TABLE_ARN}"
+            POLICY_ARN="$(aws iam create-policy --policy-name "${POLICY_NAME}" --policy-document "file://${POLICY_DOC}" --query Policy.Arn --output text)"
+          else
+            echo "Policy exists: ${EXISTING_ARN} (updating default version)"
+            # Create a new version (policy is immutable per version); set as default
+            POLICY_ARN="$EXISTING_ARN"
+            aws iam create-policy-version --policy-arn "$POLICY_ARN" --policy-document "file://${POLICY_DOC}" --set-as-default >/dev/null
+          fi
+
+          # Attach to the current IAM user if not already attached
+          ATTACHED="$(aws iam list-attached-user-policies --user-name "$USER_NAME" \
+            --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text)"
+
+          if [[ "$ATTACHED" == "0" ]]; then
+            echo "Attaching policy to user ${USER_NAME}"
+            aws iam attach-user-policy --user-name "$USER_NAME" --policy-arn "$POLICY_ARN"
+          else
+            echo "Policy already attached to ${USER_NAME}"
+          fi
+
+          echo "Done. User ${USER_NAME} has RW permissions on ${DDB_TABLE_NAME}"
+
       - name: Ensure S3, DynamoDB, and IAM roles exist
         shell: bash
         run: |
@@ -355,6 +429,22 @@ jobs:
           echo "image_tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Using tag: $tag"
 
+      - name: Derive ENVIRONMENT from branch
+        id: env
+        shell: bash
+        run: |
+          b="${GITHUB_REF_NAME}"
+          case "$b" in
+            sivan-feature*)  env="sivan"  ;;
+            dvir-feature*)   env="dvir"   ;;
+            gili-feature*)   env="gili"   ;;
+            sahar-feature*)  env="sahar"  ;;
+            main)            env="main"   ;;
+            staging)         env="staging";;
+            dev)             env="dev"    ;;
+            *)               env="dev"    ;;
+          esac
+          echo "ENVIRONMENT=$env" >> $GITHUB_ENV
           
       - name: Terraform Init (S3 backend from code)
         working-directory: ${{ steps.find-dir.outputs.dir }}
