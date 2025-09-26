@@ -166,14 +166,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          # S3 Bucket
           BUCKET="${TF_STATE_BUCKET}"
           if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
             echo "S3 bucket '$BUCKET' exists."
           else
             echo "Creating S3 bucket '$BUCKET'..."
-            aws s3api create-bucket --bucket "$BUCKET" --region "${AWS_DEFAULT_REGION}" --create-bucket-configuration LocationConstraint="${AWS_DEFAULT_REGION}"
+            if [ "${AWS_DEFAULT_REGION}" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BUCKET" --region "${AWS_DEFAULT_REGION}"
+            else
+              aws s3api create-bucket --bucket "$BUCKET" --region "${AWS_DEFAULT_REGION}" \
+                --create-bucket-configuration LocationConstraint="${AWS_DEFAULT_REGION}"
+            fi
           fi
 
+          # DynamoDB Table
           TABLE="${TF_LOCK_TABLE}"
           if aws dynamodb describe-table --table-name "$TABLE" 2>/dev/null; then
             echo "DynamoDB table '$TABLE' exists."
@@ -186,6 +194,7 @@ jobs:
               --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5
           fi
 
+          # IAM Role (Cluster Role)
           CLUSTER_ROLE="${CLUSTER_ROLE_NAME}"
           if aws iam get-role --role-name "$CLUSTER_ROLE" 2>/dev/null; then
             echo "IAM Role '$CLUSTER_ROLE' exists."
@@ -195,6 +204,7 @@ jobs:
               --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
           fi
 
+          # IAM Role (Node Group Role)
           NODE_ROLE="${NODE_ROLE_NAME}"
           if aws iam get-role --role-name "$NODE_ROLE" 2>/dev/null; then
             echo "IAM Role '$NODE_ROLE' exists."
