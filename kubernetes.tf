@@ -40,14 +40,18 @@ resource "kubernetes_secret" "guestlist_aws" {
 
 # Deployment
 resource "kubernetes_deployment" "guestlist_api" {
-  depends_on = [kubernetes_namespace.guestlist]
+  depends_on = [
+    kubernetes_namespace.guestlist,
+    kubernetes_secret.guestlist_aws
+  ]
+
   metadata {
     name      = "guestlist-deployment"
     namespace = kubernetes_namespace.guestlist.metadata[0].name
     labels = {
       app         = "guestlist-api"
       environment = var.environment
-      student     = var.environment
+      student     = var.environment  # student = environment
     }
   }
 
@@ -64,8 +68,6 @@ resource "kubernetes_deployment" "guestlist_api" {
       metadata {
         labels = {
           app = "guestlist-api"
-          environment = var.environment
-          student     = var.environment
         }
       }
 
@@ -75,7 +77,7 @@ resource "kubernetes_deployment" "guestlist_api" {
           image             = local.full_image
           image_pull_policy = "Always"
 
-          # --- AWS + DynamoDB envs from Secret ---
+          # -------- AWS + DynamoDB envs (from Secret) --------
           env {
             name = "AWS_ACCESS_KEY_ID"
             value_from {
@@ -85,6 +87,7 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
+
           env {
             name = "AWS_SECRET_ACCESS_KEY"
             value_from {
@@ -94,6 +97,7 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
+
           env {
             name = "AWS_DEFAULT_REGION"
             value_from {
@@ -103,6 +107,7 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
+
           env {
             name = "DDB_TABLE"
             value_from {
@@ -112,6 +117,7 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
+          # ---------------------------------------------------
 
           port {
             container_port = 1111
@@ -147,50 +153,21 @@ resource "kubernetes_deployment" "guestlist_api" {
           }
         }
 
-          # Health checks
-          liveness_probe {
-            http_get {
-              path = "/"
-              port = 1111
-            }
-            initial_delay_seconds = 30
-            period_seconds        = 10
-            timeout_seconds       = 5
-            failure_threshold     = 3
-          }
+        # (Optional) image pull secrets, SA, etc. go here, still inside template.spec
+        # image_pull_secrets { name = "myregistry" }
+        # service_account_name = "guestlist-sa"
+      }
+    }
 
-          readiness_probe {
-            http_get {
-              path = "/"
-              port = 1111
-            }
-            initial_delay_seconds = 5
-            period_seconds        = 5
-            timeout_seconds       = 3
-            failure_threshold     = 3
-          }
-
-          # Resource limits for cost optimization
-          resources {
-            limits = {
-              cpu    = "200m"
-              memory = "256Mi"
-            }
-            requests = {
-              cpu    = "100m"
-              memory = "128Mi"
-            }
-          }
-
-          # Environment variables (if needed)
-          env {
-            name  = "ENVIRONMENT"
-            value = var.environment
-          }
-        }
+    strategy {
+      type = "RollingUpdate"
+      rolling_update {
+        max_surge       = "25%"
+        max_unavailable = "0%"
       }
     }
   }
+}
 
 # Service
 resource "kubernetes_service" "guestlist_service" {
