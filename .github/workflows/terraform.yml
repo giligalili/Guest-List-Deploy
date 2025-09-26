@@ -440,6 +440,7 @@ jobs:
         run: terraform state list || true
 
       - name: Import guestlist namespace if it already exists
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'apply' }}
         shell: bash
         run: |
           set -e
@@ -520,7 +521,7 @@ jobs:
           fi
 
       - name: K8s diagnostics
-        if: always()
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'apply' }}
         run: |
           kubectl -n guestlist get deploy,rs,pods -o wide
           kubectl -n guestlist describe deploy guestlist-deployment || true
