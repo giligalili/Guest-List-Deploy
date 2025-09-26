@@ -17,7 +17,7 @@ resource "aws_vpc" "main" {
   tags = {
     Name        = "${var.cluster_name}-vpc"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -28,7 +28,7 @@ resource "aws_internet_gateway" "main" {
   tags = {
     Name        = "${var.cluster_name}-igw"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -44,7 +44,7 @@ resource "aws_subnet" "public" {
   tags = {
     Name                                        = "${var.cluster_name}-public-${count.index + 1}"
     Environment                                 = var.environment
-    Student                                     = var.student_name
+    Student                                     = var.environment
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
     "kubernetes.io/role/elb"                    = "1"
   }
@@ -61,7 +61,7 @@ resource "aws_subnet" "private" {
   tags = {
     Name                                        = "${var.cluster_name}-private-${count.index + 1}"
     Environment                                 = var.environment
-    Student                                     = var.student_name
+    Student                                     = var.environment
     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
     "kubernetes.io/role/internal-elb"           = "1"
   }
@@ -75,7 +75,7 @@ resource "aws_eip" "nat" {
   tags = {
     Name        = "${var.cluster_name}-nat-eip"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -87,7 +87,7 @@ resource "aws_nat_gateway" "main" {
   tags = {
     Name        = "${var.cluster_name}-nat"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -103,7 +103,7 @@ resource "aws_route_table" "public" {
   tags = {
     Name        = "${var.cluster_name}-public-rt"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -118,7 +118,7 @@ resource "aws_route_table" "private" {
   tags = {
     Name        = "${var.cluster_name}-private-rt"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -152,7 +152,7 @@ resource "aws_security_group" "cluster" {
   tags = {
     Name        = "${var.cluster_name}-cluster-sg"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -185,6 +185,6 @@ resource "aws_security_group" "nodes" {
   tags = {
     Name        = "${var.cluster_name}-node-sg"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }

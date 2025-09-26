@@ -28,7 +28,7 @@ resource "aws_iam_role" "cluster" {
 
   tags = {
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -53,7 +53,7 @@ resource "aws_iam_role" "nodes" {
 
   tags = {
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -114,7 +114,7 @@ resource "aws_eks_cluster" "main" {
 
   tags = {
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
@@ -145,7 +145,7 @@ resource "aws_eks_node_group" "main" {
 
   tags = {
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }
 
