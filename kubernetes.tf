@@ -75,7 +75,7 @@ resource "kubernetes_deployment" "guestlist_api" {
           image             = local.full_image
           image_pull_policy = "Always"
 
-          # --- AWS + DynamoDB envs from Secret (multi-line nested blocks!) ---
+          # --- AWS + DynamoDB envs from Secret ---
           env {
             name = "AWS_ACCESS_KEY_ID"
             value_from {
@@ -85,7 +85,6 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
-
           env {
             name = "AWS_SECRET_ACCESS_KEY"
             value_from {
@@ -95,7 +94,6 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
-
           env {
             name = "AWS_DEFAULT_REGION"
             value_from {
@@ -105,7 +103,6 @@ resource "kubernetes_deployment" "guestlist_api" {
               }
             }
           }
-
           env {
             name = "DDB_TABLE"
             value_from {
@@ -118,7 +115,6 @@ resource "kubernetes_deployment" "guestlist_api" {
 
           port {
             container_port = 1111
-            # protocol     = "TCP"   # optional; fine to keep or drop
           }
 
           resources {
