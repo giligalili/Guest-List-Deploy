@@ -70,11 +70,6 @@ variable "namespace" {
   type        = string
   default     = "default"
 }
-# DynamoDB table your app uses (e.g., "GuestList")
-variable "ddb_table_name" {
-  type        = string
-  description = "DynamoDB table name for the app"
-}
 
 # Reuse the same IAM user that manages your TF backend
 variable "aws_access_key_id" {

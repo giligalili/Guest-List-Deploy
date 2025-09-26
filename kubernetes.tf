@@ -1,6 +1,7 @@
 # kubernetes.tf
 locals {
   full_image = "${var.image_repo}:${var.image_tag}"
+  ddb_table_name  = "GuestList-${var.environment}"
 }
 
 # Kubernetes resources for Guest List API deployment
@@ -32,7 +33,7 @@ resource "kubernetes_secret" "guestlist_aws" {
     AWS_ACCESS_KEY_ID     = var.aws_access_key_id
     AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
     AWS_DEFAULT_REGION    = var.aws_region
-    DDB_TABLE             = var.ddb_table_name
+    DDB_TABLE             = local.ddb_table_name
   }
 
   type = "Opaque"

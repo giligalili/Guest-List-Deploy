@@ -167,10 +167,10 @@ jobs:
         shell: bash
         env:
           AWS_REGION: us-east-1
-          DDB_TABLE_NAME: ${{ vars.DDB_TABLE_NAME }}   # set this repo variable (e.g., GuestList)
         run: |
           set -euo pipefail
 
+          DDB_TABLE_NAME="GuestList-${ENVIRONMENT}"
           # Who am I? (derived from your environment secrets)
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           USER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
@@ -493,7 +493,6 @@ jobs:
               -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
               -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" \
               -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
-              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
               -out="$PLAN_OUT"
@@ -502,7 +501,6 @@ jobs:
              -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
              -var="aws_region=${AWS_DEFAULT_REGION}" \
              -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
-             -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
              -out="$PLAN_OUT"
@@ -523,7 +521,6 @@ jobs:
               -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
               -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" \
               -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
-              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
               -auto-approve
@@ -532,7 +529,6 @@ jobs:
               -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
               -var="aws_region=${AWS_DEFAULT_REGION}" \
               -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
-              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
               -auto-approve
