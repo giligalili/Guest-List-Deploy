@@ -309,27 +309,52 @@ jobs:
           echo "State bucket: ${{ env.TF_STATE_BUCKET }}"
           echo "Lock table: ${{ env.TF_LOCK_TABLE }}"
 
-      - name: Select image tag
+      - name: Pick image tag from Docker Hub
         id: imagetag
         shell: bash
+        env:
+          DH_REPO: giligalili/guestlistapi
         run: |
           set -euo pipefail
-          branch="${GITHUB_REF_NAME}"
+          BRANCH="${GITHUB_REF_NAME}"
 
-          if [ "$branch" = "main" ]; then
-            tag="latest"
-          elif [ "$branch" = "staging" ]; then
-            tag="staging"
-          elif [ "$branch" = "dev" ]; then
-            tag="dev"
-          elif [[ "$branch" == *-feature* ]]; then
-            tag="student-feature"
-          else
-            tag="dev"
+          # Static envs
+          if [[ "$BRANCH" == "main" ]];   then echo "image_tag=latest"   >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$BRANCH" == "staging" ]]; then echo "image_tag=staging" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ "$BRANCH" == "dev" ]];     then echo "image_tag=dev"     >> "$GITHUB_OUTPUT"; exit 0; fi
+
+          # Feature branches (sivan/dvir/gili/sahar)
+          case "$BRANCH" in
+            sivan-feature|dvir-feature|gili-feature|sahar-feature)
+              prefix="${BRANCH}-"
+              ;;
+            *)
+              echo "Unsupported branch '$BRANCH' – defaulting to dev" >&2
+              echo "image_tag=dev" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          # jq is available on ubuntu-latest; if not, uncomment the install line:
+          # sudo apt-get update && sudo apt-get install -y jq
+
+          url="https://hub.docker.com/v2/repositories/${DH_REPO}/tags?page_size=100"
+          # (Optional) Auth to raise rate limits:
+          # AUTH="-u ${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}"
+          resp="$(curl -s ${AUTH:-} "$url")"
+
+          # Pick the most recently updated tag that starts with the prefix "<name>-feature-"
+          tag="$(echo "$resp" | jq -r --arg p "$prefix" \
+            '[.results[] | select(.name | startswith($p))] | sort_by(.last_updated) | reverse | .[0].name')"
+
+          if [[ -z "$tag" || "$tag" == "null" ]]; then
+            echo "ERROR: No tag found in $DH_REPO with prefix $prefix" >&2
+            exit 1
           fi
 
-          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Deploying image tag: ${tag}"
+          echo "image_tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Using tag: $tag"
+
           
       - name: Terraform Init (S3 backend from code)
         working-directory: ${{ steps.find-dir.outputs.dir }}
