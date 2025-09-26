@@ -1,4 +1,4 @@
-name: Guest List Terraform Deploy (Dev Only)
+name: Guest List Terraform Deploy
 
 on:
   push:
@@ -250,10 +250,10 @@ jobs:
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform init -input=false -reconfigure
 
-      - name: Select/Create workspace "dev"
+      - name: Select/Create workspace
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          terraform workspace select dev 2>/dev/null || terraform workspace new dev
+          terraform workspace select ${{ needs.determine-environment.outputs.workspace }} 2>/dev/null || terraform workspace new ${{ needs.determine-environment.outputs.workspace }}
           terraform workspace show
 
       - name: Init completed (manual)
@@ -281,10 +281,13 @@ jobs:
             echo "Running NORMAL plan (refresh=true)"
           fi
 
-          if [ -f "dev.tfvars" ]; then
-            terraform plan $PLAN_FLAGS -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan-dev
+          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
+          PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
+
+          if [ -f "$TFVARS_FILE" ]; then
+            terraform plan $PLAN_FLAGS -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -out=$PLAN_OUT
           else
-            terraform plan $PLAN_FLAGS -var="environment=dev" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan-dev
+            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -out=$PLAN_OUT
           fi
 
       - name: Terraform Apply
@@ -292,12 +295,15 @@ jobs:
         id: tf-apply
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          if [ -f "tfplan-dev" ]; then
-            terraform apply "tfplan-dev"
-          elif [ -f "dev.tfvars" ]; then
-            terraform apply -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
+          PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
+
+          if [ -f "$PLAN_OUT" ]; then
+            terraform apply "$PLAN_OUT"
+          elif [ -f "$TFVARS_FILE" ]; then
+            terraform apply -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           else
-            terraform apply -var="environment=dev" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           fi
 
       - name: Show LB URL and health check (curl)
@@ -332,8 +338,9 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          if [ -f "dev.tfvars" ]; then
-            terraform destroy -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
+          if [ -f "$TFVARS_FILE" ]; then
+            terraform destroy -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           else
-            terraform destroy -var="environment=dev" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+            terraform destroy -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           fi
