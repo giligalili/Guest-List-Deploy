@@ -62,6 +62,7 @@ env:
 
   AWS_DEFAULT_REGION: us-east-1
 
+  ENVIRONMENT: ${{ github.ref_name }}
   TF_STATE_BUCKET: guestlist-tfstate-${{ github.ref_name }}
   TF_LOCK_TABLE: terraform-locks
 
@@ -311,7 +312,11 @@ jobs:
 
       - name: Terraform Init (S3 backend from code)
         working-directory: ${{ steps.find-dir.outputs.dir }}
-        run: terraform init -input=false -reconfigure
+        run: |
+          terraform init -input=false -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=envs/${ENVIRONMENT}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION:-us-east-1}
 
       - name: Select/Create workspace
         working-directory: ${{ steps.find-dir.outputs.dir }}
