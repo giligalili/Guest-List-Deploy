@@ -8,16 +8,22 @@ locals {
 
 # Namespace for the application
 resource "kubernetes_namespace" "guestlist" {
+  # create the namespace only if it isn't "default"
+  count = var.namespace == "default" ? 0 : 1
+
   metadata {
-    name = "guestlist-${var.environment}"
+    name = var.namespace
     labels = {
       environment = var.environment
       student     = var.environment
     }
+  wait_for_default_service_account = true
   }
 
-  depends_on = [aws_eks_cluster.main, aws_eks_node_group.main]
+  # this silences that "legacy SDK" plan warning
+  wait_for_default_service_account = true
 }
+
 resource "kubernetes_namespace" "ns" {
   metadata {
     name = var.namespace

@@ -439,6 +439,16 @@ jobs:
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform state list || true
 
+      - name: Import guestlist namespace if it already exists
+        shell: bash
+        run: |
+          set -e
+          if kubectl get ns guestlist >/dev/null 2>&1; then
+            # import only if not already in state
+            terraform state show kubernetes_namespace.guestlist >/dev/null 2>&1 || \
+            terraform import kubernetes_namespace.guestlist guestlist
+          fi
+
       - name: Terraform Plan
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'plan' }}
         timeout-minutes: 10
@@ -466,6 +476,7 @@ jobs:
               -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -var="namespace=guestlist" \
               -out="$PLAN_OUT"
           else
             terraform plan $PLAN_FLAGS \
@@ -474,6 +485,7 @@ jobs:
              -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+             -var="namespace=guestlist" \
              -out="$PLAN_OUT"
           fi
 
@@ -494,6 +506,7 @@ jobs:
               -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -var="namespace=guestlist" \
               -auto-approve
           else
             terraform apply \
@@ -502,8 +515,18 @@ jobs:
               -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -var="namespace=guestlist" \
               -auto-approve
           fi
+
+      - name: K8s diagnostics
+        if: always()
+        run: |
+          kubectl -n guestlist get deploy,rs,pods -o wide
+          kubectl -n guestlist describe deploy guestlist-deployment || true
+          kubectl -n guestlist describe pods -l app=guestlist-api || true
+          kubectl -n guestlist get events --sort-by=.lastTimestamp | tail -n 100 || true
+          kubectl -n guestlist logs deploy/guestlist-deployment --tail=200 || true
 
       - name: Show LB URL and health check (curl)
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
