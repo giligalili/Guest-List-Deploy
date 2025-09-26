@@ -22,6 +22,21 @@ resource "kubernetes_namespace" "ns" {
     name = var.namespace
   }
 }
+resource "kubernetes_secret" "guestlist_aws" {
+  metadata {
+    name      = "guestlist-aws"
+    namespace = kubernetes_namespace.guestlist.metadata[0].name
+  }
+
+  data = {
+    AWS_ACCESS_KEY_ID     = var.aws_access_key_id
+    AWS_SECRET_ACCESS_KEY = var.aws_secret_access_key
+    AWS_DEFAULT_REGION    = var.aws_region
+    DDB_TABLE             = var.ddb_table_name
+  }
+
+  type = "Opaque"
+}
 
 # Deployment
 resource "kubernetes_deployment" "guestlist_api" {
@@ -55,12 +70,57 @@ resource "kubernetes_deployment" "guestlist_api" {
         container {
           image = local.full_image
           name  = "guestlist-container"
+          image_pull_policy = "Always"
+          port {
+            container_port = 1111
+            protocol       = "TCP"
+          }
+          # --- AWS + DynamoDB envs from the Secret ---
+          env {
+            name = "AWS_ACCESS_KEY_ID"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "AWS_ACCESS_KEY_ID"
+              }
+            }
+          }
+
+          env {
+            name = "AWS_SECRET_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "AWS_SECRET_ACCESS_KEY"
+              }
+            }
+          }
+
+          env {
+            name = "AWS_DEFAULT_REGION"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "AWS_DEFAULT_REGION"
+              }
+            }
+          }
+
+          env {
+            name = "DDB_TABLE"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "DDB_TABLE"
+              }
+            }
+          }
 
           port {
             container_port = 1111
             protocol       = "TCP"
           }
-
+        }
           # Health checks
           liveness_probe {
             http_get {

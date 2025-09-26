@@ -399,9 +399,25 @@ jobs:
           PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
 
           if [ -f "$TFVARS_FILE" ]; then
-            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -out="$PLAN_OUT"
+            terraform plan $PLAN_FLAGS \
+              -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
+              -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" \
+              -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
+              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
+              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -var="student_name=${{ env.STUDENT_NAME }}" \
+              -out="$PLAN_OUT"
           else
-            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -out="$PLAN_OUT"
+            terraform plan $PLAN_FLAGS \
+             -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
+             -var="aws_region=${AWS_DEFAULT_REGION}" \
+             -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
+             -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
+             -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+             -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+             -var="student_name=${{ env.STUDENT_NAME }}" \
+             -out="$PLAN_OUT"
           fi
 
       - name: Terraform Apply
@@ -413,11 +429,27 @@ jobs:
           PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
 
           if [ -f "$PLAN_OUT" ]; then
-            terraform apply "$PLAN_OUT"
+            terraform apply "$PLAN_OUT" 
           elif [ -f "$TFVARS_FILE" ]; then
-            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -auto-approve
+            terraform apply \
+              -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
+              -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" \
+              -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
+              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
+              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -var="student_name=${{ env.STUDENT_NAME }}"
+              -auto-approve
           else
-            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -auto-approve
+            terraform apply \
+              -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
+              -var="aws_region=${AWS_DEFAULT_REGION}" \
+              -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
+              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
+              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+              -var="student_name=${{ env.STUDENT_NAME }}"
+              -auto-approve
           fi
 
       - name: Show LB URL and health check (curl)

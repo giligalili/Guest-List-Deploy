@@ -75,3 +75,28 @@ variable "namespace" {
   type        = string
   default     = "default"
 }
+# DynamoDB table your app uses (e.g., "GuestList")
+variable "ddb_table_name" {
+  type        = string
+  description = "DynamoDB table name for the app"
+}
+
+# AWS region your app will call
+variable "aws_region" {
+  type        = string
+  description = "AWS region for DynamoDB"
+  default     = "us-east-1"
+}
+
+# Reuse the same IAM user that manages your TF backend
+variable "aws_access_key_id" {
+  type        = string
+  sensitive   = true
+  description = "App AWS access key (same user as TF backend)"
+}
+
+variable "aws_secret_access_key" {
+  type        = string
+  sensitive   = true
+  description = "App AWS secret key (same user as TF backend)"
+}
