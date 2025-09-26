@@ -127,22 +127,26 @@ resource "kubernetes_deployment" "guestlist_api" {
             }
           }
 
-          liveness_probe {
-            http_get {
-              path = "/healthz"
-              port = 1111
-            }
-            initial_delay_seconds = 10
-            period_seconds        = 10
-          }
-
           readiness_probe {
             http_get {
               path = "/readyz"
               port = 1111
             }
-            initial_delay_seconds = 5
+            initial_delay_seconds = 10
             period_seconds        = 5
+            timeout_seconds       = 2
+            failure_threshold     = 6
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/healthz"
+              port = 1111
+            }
+            initial_delay_seconds = 20
+            period_seconds        = 10
+            timeout_seconds       = 2
+            failure_threshold     = 3
           }
         }
 
