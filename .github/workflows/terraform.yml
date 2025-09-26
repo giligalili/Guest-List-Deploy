@@ -163,6 +163,23 @@ jobs:
           audience: sts.amazonaws.com
           output-env-credentials: true
 
+      - name: Derive ENVIRONMENT from branch
+        id: env
+        shell: bash
+        run: |
+          b="${GITHUB_REF_NAME}"
+          case "$b" in
+            sivan-feature*)  env="sivan"  ;;
+            dvir-feature*)   env="dvir"   ;;
+            gili-feature*)   env="gili"   ;;
+            sahar-feature*)  env="sahar"  ;;
+            main)            env="main"   ;;
+            staging)         env="staging";;
+            dev)             env="dev"    ;;
+            *)               env="dev"    ;;
+          esac
+          echo "ENVIRONMENT=$env" >> $GITHUB_ENV
+
       - name: Ensure app DynamoDB IAM policy is created and attached to current user
         shell: bash
         env:
@@ -170,22 +187,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ENVIRONMENT must already be set earlier from the branch (sivan/dvir/gili/sahar/dev/staging/main)
+          # Build table name from environment (e.g., GuestList-sivan)
           DDB_TABLE_NAME="GuestList-${ENVIRONMENT}"
 
-          # who am I (must be an IAM user for attachment)
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           USER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
+
           if [[ "$USER_ARN" != *":user/"* ]]; then
             echo "Credentials are not an IAM user (ARN: $USER_ARN). Skipping user attachment."
             exit 0
           fi
           USER_NAME="${USER_ARN##*/}"
 
-          # per-environment policy to avoid version churn across envs
           POLICY_NAME="guestlist-app-ddb-rw-${ENVIRONMENT}"
 
-          # desired policy document (scoped to this env's table)
           POLICY_DOC="$(mktemp)"
           cat > "$POLICY_DOC" <<'JSON'
           {
@@ -214,12 +229,12 @@ jobs:
           TABLE_ARN="arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/${DDB_TABLE_NAME}"
           sed -i "s#__TABLE_ARN__#${TABLE_ARN}#g" "$POLICY_DOC"
 
-          # ensure jq & python3 (ubuntu-latest usually has both; install jq if missing)
+          # jq usually exists on ubuntu-latest; install if missing
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y && sudo apt-get install -y jq
           fi
 
-          # find or create policy
+          # Find or create the per-environment policy
           EXISTING_ARN="$(aws iam list-policies --scope Local \
             --query "Policies[?PolicyName=='${POLICY_NAME}'].Arn | [0]" --output text)"
 
@@ -231,22 +246,19 @@ jobs:
               --query Policy.Arn --output text)"
           else
             POLICY_ARN="$EXISTING_ARN"
-            # compare desired doc vs current default version; only update if different
+
+            # Compare desired doc vs current default version; only update if different
             DEF_VER="$(aws iam get-policy --policy-arn "$POLICY_ARN" --query 'Policy.DefaultVersionId' --output text)"
             CURR_DOC_URLENC="$(aws iam get-policy-version --policy-arn "$POLICY_ARN" --version-id "$DEF_VER" --query 'PolicyVersion.Document' --output text)"
 
-            # decode the URL-encoded JSON returned by AWS
-            python3 - "$CURR_DOC_URLENC" <<'PY' > /tmp/current.json
-            import sys, urllib.parse, json
-            doc = urllib.parse.unquote(sys.argv[1])
-            print(json.dumps(json.loads(doc), sort_keys=True))
-            PY
+            # Decode AWS's URL-encoded JSON and sort keys (no heredoc; no EOF issues)
+            echo "$CURR_DOC_URLENC" | python3 -c 'import sys,urllib.parse,json;print(json.dumps(json.loads(urllib.parse.unquote(sys.stdin.read())), sort_keys=True))' > /tmp/current.json
             jq -S '.' "$POLICY_DOC" > /tmp/desired.json
 
             if diff -q /tmp/current.json /tmp/desired.json >/dev/null; then
               echo "Policy document unchanged; nothing to do."
             else
-              # prune old non-default versions if at limit (max 5)
+              # IAM policy version cap = 5. Prune oldest non-default if needed, then create new default
               COUNT="$(aws iam list-policy-versions --policy-arn "$POLICY_ARN" --query 'length(Versions[])' --output text)"
               if [[ "$COUNT" -ge 5 ]]; then
                 OLDEST_NON_DEFAULT="$(aws iam list-policy-versions --policy-arn "$POLICY_ARN" \
@@ -260,7 +272,7 @@ jobs:
             fi
           fi
 
-          # attach to current user if not already
+          # Attach to current IAM user if not already
           ATTACHED="$(aws iam list-attached-user-policies --user-name "$USER_NAME" \
             --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text)"
           if [[ "$ATTACHED" == "0" ]]; then
@@ -464,23 +476,6 @@ jobs:
 
           echo "image_tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Using tag: $tag"
-
-      - name: Derive ENVIRONMENT from branch
-        id: env
-        shell: bash
-        run: |
-          b="${GITHUB_REF_NAME}"
-          case "$b" in
-            sivan-feature*)  env="sivan"  ;;
-            dvir-feature*)   env="dvir"   ;;
-            gili-feature*)   env="gili"   ;;
-            sahar-feature*)  env="sahar"  ;;
-            main)            env="main"   ;;
-            staging)         env="staging";;
-            dev)             env="dev"    ;;
-            *)               env="dev"    ;;
-          esac
-          echo "ENVIRONMENT=$env" >> $GITHUB_ENV
           
       - name: Terraform Init (S3 backend from code)
         working-directory: ${{ steps.find-dir.outputs.dir }}
