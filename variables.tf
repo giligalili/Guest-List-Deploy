@@ -48,12 +48,6 @@ variable "node_min_capacity" {
   default     = 1
 }
 
-variable "app_image" {
-  description = "Docker image for the guest list application"
-  type        = string
-  default     = "giligalili/guestlistapi:ver04"
-}
-
 variable "app_replicas" {
   description = "Number of application replicas"
   type        = number
@@ -64,4 +58,20 @@ variable "student_name" {
   description = "Student name for resource tagging"
   type        = string
   default     = "devsecops-student"
+}
+variable "image_repo" {
+  type        = string
+  description = "Docker image repository"
+  default     = "docker.io/giligalili/guestlistapi"
+}
+
+variable "image_tag" {
+  type        = string
+  description = "Docker image tag to deploy"
+  default     = "latest"
+}
+
+variable "namespace" {
+  type        = string
+  default     = "default"
 }

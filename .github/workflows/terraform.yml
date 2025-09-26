@@ -163,7 +163,6 @@ jobs:
           audience: sts.amazonaws.com
           output-env-credentials: true
 
-
       - name: Ensure S3, DynamoDB, and IAM roles exist
         shell: bash
         run: |
@@ -310,6 +309,28 @@ jobs:
           echo "State bucket: ${{ env.TF_STATE_BUCKET }}"
           echo "Lock table: ${{ env.TF_LOCK_TABLE }}"
 
+      - name: Select image tag
+        id: imagetag
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME}"
+
+          if [ "$branch" = "main" ]; then
+            tag="latest"
+          elif [ "$branch" = "staging" ]; then
+            tag="staging"
+          elif [ "$branch" = "dev" ]; then
+            tag="dev"
+          elif [[ "$branch" == *-feature* ]]; then
+            tag="student-feature"
+          else
+            tag="dev"
+          fi
+
+          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Deploying image tag: ${tag}"
+          
       - name: Terraform Init (S3 backend from code)
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
@@ -353,9 +374,9 @@ jobs:
           PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
 
           if [ -f "$TFVARS_FILE" ]; then
-            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -out="$PLAN_OUT"
+            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -out="$PLAN_OUT"
           else
-            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -out="$PLAN_OUT"
+            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -out="$PLAN_OUT"
           fi
 
       - name: Terraform Apply
@@ -369,9 +390,9 @@ jobs:
           if [ -f "$PLAN_OUT" ]; then
             terraform apply "$PLAN_OUT"
           elif [ -f "$TFVARS_FILE" ]; then
-            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -auto-approve
           else
-            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" -auto-approve
           fi
 
       - name: Show LB URL and health check (curl)

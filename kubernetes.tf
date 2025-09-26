@@ -13,6 +13,14 @@ resource "kubernetes_namespace" "guestlist" {
 
   depends_on = [aws_eks_cluster.main, aws_eks_node_group.main]
 }
+resource "kubernetes_namespace" "ns" {
+  metadata {
+    name = var.namespace
+  }
+}
+resource "kubernetes_manifest" "guestlistapi_deploy" {
+  manifest = yamldecode(local.deploy_manifest)
+}
 
 # Deployment
 resource "kubernetes_deployment" "guestlist_api" {
@@ -25,6 +33,14 @@ resource "kubernetes_deployment" "guestlist_api" {
       student     = var.student_name
     }
   }
+
+locals {
+  deploy_manifest = templatefile("${path.module}/guestlistapideploy.yaml.tftpl", {
+    image_repo = var.image_repo
+    image_tag  = var.image_tag
+    namespace  = var.namespace
+  })
+}
 
   spec {
     replicas = var.app_replicas
