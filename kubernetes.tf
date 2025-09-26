@@ -40,6 +40,7 @@ resource "kubernetes_secret" "guestlist_aws" {
 
 # Deployment
 resource "kubernetes_deployment" "guestlist_api" {
+  depends_on = [kubernetes_namespace.guestlist]
   metadata {
     name      = "guestlist-deployment"
     namespace = kubernetes_namespace.guestlist.metadata[0].name
@@ -165,9 +166,6 @@ resource "kubernetes_deployment" "guestlist_api" {
       }
     }
   }
-
-  depends_on = [aws_eks_cluster.main, aws_eks_node_group.main]
-}
 
 # Service
 resource "kubernetes_service" "guestlist_service" {

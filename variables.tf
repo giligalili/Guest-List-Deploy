@@ -81,13 +81,6 @@ variable "ddb_table_name" {
   description = "DynamoDB table name for the app"
 }
 
-# AWS region your app will call
-variable "aws_region" {
-  type        = string
-  description = "AWS region for DynamoDB"
-  default     = "us-east-1"
-}
-
 # Reuse the same IAM user that manages your TF backend
 variable "aws_access_key_id" {
   type        = string
