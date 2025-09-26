@@ -402,6 +402,33 @@ jobs:
           echo "ERROR: Service not healthy after $((ATTEMPTS*SLEEP)) seconds at $URL"
           exit 1
 
+      - name: Export kubeconfig and upload to S3
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply' }}
+        working-directory: ${{ steps.find-dir.outputs.dir }}  
+        env:
+          # pass through (may be empty); default in the script
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ENVIRONMENT: ${{ env.ENVIRONMENT }}
+          TF_STATE_BUCKET: ${{ env.TF_STATE_BUCKET }}
+          KUBECONFIG_PATH: kubeconfig-${{ env.ENVIRONMENT }}.yaml
+        run: |
+          set -euo pipefail
+          REGION="${AWS_REGION:-us-east-1}"   # <— fallback happens here, safely
+
+          CLUSTER_NAME=$(terraform output -raw eks_cluster_name)
+
+          aws eks update-kubeconfig \
+            --name "$CLUSTER_NAME" \
+            --region "$REGION" \
+            --kubeconfig "$KUBECONFIG_PATH"
+
+          aws s3 cp "$KUBECONFIG_PATH" \
+            "s3://${TF_STATE_BUCKET}/eks/${ENVIRONMENT}/kubeconfig.yaml" \
+            --sse AES256
+
+          aws s3 presign "s3://${TF_STATE_BUCKET}/eks/${ENVIRONMENT}/kubeconfig.yaml" \
+            --expires-in 3600 | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Terraform Destroy
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
