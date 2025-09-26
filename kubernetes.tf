@@ -22,9 +22,6 @@ resource "kubernetes_namespace" "ns" {
     name = var.namespace
   }
 }
-resource "kubernetes_manifest" "guestlistapi_deploy" {
-  manifest = yamldecode(local.deploy_manifest)
-}
 
 # Deployment
 resource "kubernetes_deployment" "guestlist_api" {
