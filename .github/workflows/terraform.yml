@@ -1,4 +1,4 @@
-name: Guest List Terraform Deploy
+name: Guest List Terraform Deploy (Dynamic Environment)
 
 on:
   push:
@@ -96,11 +96,9 @@ jobs:
             esac
           }
 
-          # Determine branch (for dispatch, the selected branch is github.ref_name)
           working_branch="${{ github.ref_name }}"
           echo "Using branch: $working_branch"
 
-          # Determine environment (allow manual override if provided)
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.environment }}" ]; then
             environment="${{ github.event.inputs.environment }}"
             echo "Using explicitly selected environment: $environment"
@@ -136,7 +134,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # Cache Terraform providers
       - name: Enable TF plugin cache env
         run: echo "TF_PLUGIN_CACHE_DIR=${{ runner.temp }}/.terraform-plugin-cache" >> "$GITHUB_ENV"
 
@@ -156,7 +153,7 @@ jobs:
             echo "AWS_ACCESS_KEY_ID is set"
           fi
 
-      - name: Configure AWS Credentials (Dev)
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -165,7 +162,8 @@ jobs:
           audience: sts.amazonaws.com
           output-env-credentials: true
 
-      - name: Check & Create S3, DynamoDB Table, and IAM Roles
+
+      - name: Ensure S3, DynamoDB, and IAM roles exist
         shell: bash
         run: |
           set -euo pipefail
@@ -176,7 +174,7 @@ jobs:
             echo "S3 bucket '$BUCKET' exists."
           else
             echo "Creating S3 bucket '$BUCKET'..."
-            aws s3api create-bucket --bucket "$BUCKET" --region "${AWS_DEFAULT_REGION}" --create-bucket-configuration LocationConstraint="${AWS_DEFAULT_REGION}"
+            aws s3api create-bucket --bucket "$BUCKET" --region "${AWS_DEFAULT_REGION}"
           fi
 
           # DynamoDB Table
@@ -196,29 +194,95 @@ jobs:
           CLUSTER_ROLE="${CLUSTER_ROLE_NAME}"
           if aws iam get-role --role-name "$CLUSTER_ROLE" 2>/dev/null; then
             echo "IAM Role '$CLUSTER_ROLE' exists."
+            # Always update the trust policy for safety
+            aws iam update-assume-role-policy --role-name "$CLUSTER_ROLE" --policy-document '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "eks.amazonaws.com"
+                  },
+                  "Action": "sts:AssumeRole"
+                }
+              ]
+            }'
           else
             echo "Creating IAM Role '$CLUSTER_ROLE'..."
             aws iam create-role --role-name "$CLUSTER_ROLE" \
-              --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+              --assume-role-policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "eks.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }'
           fi
 
           # IAM Role (Node Group Role)
           NODE_ROLE="${NODE_ROLE_NAME}"
           if aws iam get-role --role-name "$NODE_ROLE" 2>/dev/null; then
             echo "IAM Role '$NODE_ROLE' exists."
+            # Always update the trust policy for safety
+            aws iam update-assume-role-policy --role-name "$NODE_ROLE" --policy-document '{
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "ec2.amazonaws.com"
+                  },
+                  "Action": "sts:AssumeRole"
+                }
+              ]
+            }'
           else
             echo "Creating IAM Role '$NODE_ROLE'..."
             aws iam create-role --role-name "$NODE_ROLE" \
-              --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+              --assume-role-policy-document '{
+                "Version": "2012-10-17",
+                "Statement": [
+                  {
+                    "Effect": "Allow",
+                    "Principal": {
+                      "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                  }
+                ]
+              }'
           fi
+
+          # Attach AWS EKS policies (this is the fix!)
+          # Cluster Role - AmazonEKSClusterPolicy
+          aws iam attach-role-policy \
+            --role-name "${CLUSTER_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+
+          # Node Group Role - WorkerNode, CNI, ECR
+          aws iam attach-role-policy \
+            --role-name "${NODE_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+          aws iam attach-role-policy \
+            --role-name "${NODE_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          aws iam attach-role-policy \
+            --role-name "${NODE_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+
       - name: Export Terraform toggles and resource names
         shell: bash
         run: |
          echo "TF_VAR_manage_iam=false" >> $GITHUB_ENV
          echo "TF_VAR_create_state_backend=false" >> $GITHUB_ENV
-         echo "TF_VAR_cluster_role_name=guestlist-cluster-cluster-role" >> $GITHUB_ENV
-         echo "TF_VAR_node_group_role_name=guestlist-cluster-node-group-role" >> $GITHUB_ENV
-         echo "TF_VAR_state_bucket_name=guestlist-tfstate-bucket" >> $GITHUB_ENV
+         echo "TF_VAR_cluster_role_name=${CLUSTER_ROLE_NAME}" >> $GITHUB_ENV
+         echo "TF_VAR_node_group_role_name=${NODE_ROLE_NAME}" >> $GITHUB_ENV
+         echo "TF_VAR_state_bucket_name=${TF_STATE_BUCKET}" >> $GITHUB_ENV
 
       - name: Detect Terraform Directory
         id: find-dir
@@ -246,14 +310,13 @@ jobs:
           echo "Lock table: ${{ env.TF_LOCK_TABLE }}"
 
       - name: Terraform Init (S3 backend from code)
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action != '' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform init -input=false -reconfigure
 
-      - name: Select/Create workspace "dev"
+      - name: Select/Create workspace
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          terraform workspace select dev 2>/dev/null || terraform workspace new dev
+          terraform workspace select ${{ needs.determine-environment.outputs.workspace }} 2>/dev/null || terraform workspace new ${{ needs.determine-environment.outputs.workspace }}
           terraform workspace show
 
       - name: Init completed (manual)
@@ -281,10 +344,13 @@ jobs:
             echo "Running NORMAL plan (refresh=true)"
           fi
 
-          if [ -f "dev.tfvars" ]; then
-            terraform plan $PLAN_FLAGS -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan-dev
+          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
+          PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
+
+          if [ -f "$TFVARS_FILE" ]; then
+            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -out="$PLAN_OUT"
           else
-            terraform plan $PLAN_FLAGS -var="environment=dev" -var="aws_region=${AWS_DEFAULT_REGION}" -out=tfplan-dev
+            terraform plan $PLAN_FLAGS -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -out="$PLAN_OUT"
           fi
 
       - name: Terraform Apply
@@ -292,12 +358,15 @@ jobs:
         id: tf-apply
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          if [ -f "tfplan-dev" ]; then
-            terraform apply "tfplan-dev"
-          elif [ -f "dev.tfvars" ]; then
-            terraform apply -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
+          PLAN_OUT="tfplan-${{ needs.determine-environment.outputs.workspace }}"
+
+          if [ -f "$PLAN_OUT" ]; then
+            terraform apply "$PLAN_OUT"
+          elif [ -f "$TFVARS_FILE" ]; then
+            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           else
-            terraform apply -var="environment=dev" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+            terraform apply -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           fi
 
       - name: Show LB URL and health check (curl)
@@ -332,8 +401,9 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: |
-          if [ -f "dev.tfvars" ]; then
-            terraform destroy -var-file="dev.tfvars" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
+          if [ -f "$TFVARS_FILE" ]; then
+            terraform destroy -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var-file="$TFVARS_FILE" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           else
-            terraform destroy -var="environment=dev" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
+            terraform destroy -var="environment=${{ needs.determine-environment.outputs.workspace }}" -var="aws_region=${AWS_DEFAULT_REGION}" -auto-approve
           fi

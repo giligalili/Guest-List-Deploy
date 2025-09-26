@@ -14,9 +14,8 @@ variable "cluster_name" {
 }
 
 variable "environment" {
-  description = "Environment name (dev, staging, prod)"
+  description = "Environment name (gili, sivan, sahar, dvir, dev, staging, prod)"
   type        = string
-  default     = "dev"
 }
 
 variable "vpc_cidr" {
