@@ -12,6 +12,6 @@ resource "aws_dynamodb_table" "guestlist_app" {
   tags = {
     Project     = "guest-list"
     Environment = var.environment
-    Student     = var.student_name
+    Student     = var.environment
   }
 }

@@ -11,7 +11,7 @@ resource "kubernetes_namespace" "guestlist" {
     name = "guestlist-${var.environment}"
     labels = {
       environment = var.environment
-      student     = var.student_name
+      student     = var.environment
     }
   }
 
@@ -47,7 +47,7 @@ resource "kubernetes_deployment" "guestlist_api" {
     labels = {
       app         = "guestlist-api"
       environment = var.environment
-      student     = var.student_name
+      student     = var.environment
     }
   }
 
@@ -64,52 +64,92 @@ resource "kubernetes_deployment" "guestlist_api" {
       metadata {
         labels = {
           app = "guestlist-api"
+          environment = var.environment
+          student     = var.environment
         }
       }
 
       spec {
-          container {
-            name               = "guestlist-container"
-            image              = local.full_image
-            image_pull_policy  = "Always"
+        container {
+          name              = "guestlist-container"
+          image             = local.full_image
+          image_pull_policy = "Always"
 
-            # --- AWS + DynamoDB envs from Secret ---
-            env {
-              name = "AWS_ACCESS_KEY_ID"
-              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "AWS_ACCESS_KEY_ID" } }
-            }
-            env {
-              name = "AWS_SECRET_ACCESS_KEY"
-              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "AWS_SECRET_ACCESS_KEY" } }
-            }
-            env {
-              name = "AWS_DEFAULT_REGION"
-              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "AWS_DEFAULT_REGION" } }
-            }
-            env {
-              name = "DDB_TABLE"
-              value_from { secret_key_ref { name = kubernetes_secret.guestlist_aws.metadata[0].name key = "DDB_TABLE" } }
-            }
-
-            port { container_port = 1111 }
-
-            resources {
-              limits  = { cpu = "250m", memory = "256Mi" }
-              requests= { cpu = "100m", memory = "128Mi" }
-            }
-
-            liveness_probe {
-              http_get { path = "/healthz"; port = 1111 }
-              initial_delay_seconds = 10
-              period_seconds        = 10
-            }
-
-            readiness_probe {
-              http_get { path = "/readyz"; port = 1111 }
-              initial_delay_seconds = 5
-              period_seconds        = 5
+          # --- AWS + DynamoDB envs from Secret (multi-line nested blocks!) ---
+          env {
+            name = "AWS_ACCESS_KEY_ID"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "AWS_ACCESS_KEY_ID"
+              }
             }
           }
+
+          env {
+            name = "AWS_SECRET_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "AWS_SECRET_ACCESS_KEY"
+              }
+            }
+          }
+
+          env {
+            name = "AWS_DEFAULT_REGION"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "AWS_DEFAULT_REGION"
+              }
+            }
+          }
+
+          env {
+            name = "DDB_TABLE"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.guestlist_aws.metadata[0].name
+                key  = "DDB_TABLE"
+              }
+            }
+          }
+
+          port {
+            container_port = 1111
+            # protocol     = "TCP"   # optional; fine to keep or drop
+          }
+
+          resources {
+            limits = {
+              cpu    = "250m"
+              memory = "256Mi"
+            }
+            requests = {
+              cpu    = "100m"
+              memory = "128Mi"
+            }
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/healthz"
+              port = 1111
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 10
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/readyz"
+              port = 1111
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 5
+          }
+        }
 
           # Health checks
           liveness_probe {
@@ -164,7 +204,7 @@ resource "kubernetes_service" "guestlist_service" {
     labels = {
       app         = "guestlist-api"
       environment = var.environment
-      student     = var.student_name
+      student     = var.environment
     }
   }
 

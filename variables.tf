@@ -54,11 +54,6 @@ variable "app_replicas" {
   default     = 3
 }
 
-variable "student_name" {
-  description = "Student name for resource tagging"
-  type        = string
-  default     = "devsecops-student"
-}
 variable "image_repo" {
   type        = string
   description = "Docker image repository"

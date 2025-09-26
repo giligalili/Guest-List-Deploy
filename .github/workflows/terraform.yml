@@ -496,7 +496,6 @@ jobs:
               -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-              -var="student_name=${{ env.STUDENT_NAME }}" \
               -out="$PLAN_OUT"
           else
             terraform plan $PLAN_FLAGS \
@@ -506,7 +505,6 @@ jobs:
              -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-             -var="student_name=${{ env.STUDENT_NAME }}" \
              -out="$PLAN_OUT"
           fi
 
@@ -528,7 +526,6 @@ jobs:
               -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-              -var="student_name=${{ env.STUDENT_NAME }}"
               -auto-approve
           else
             terraform apply \
@@ -538,7 +535,6 @@ jobs:
               -var="ddb_table_name=${{ vars.DDB_TABLE_NAME }}" \
               -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-              -var="student_name=${{ env.STUDENT_NAME }}"
               -auto-approve
           fi
 
