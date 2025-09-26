@@ -170,21 +170,23 @@ jobs:
         run: |
           set -euo pipefail
 
+          # ENVIRONMENT must already be set earlier from the branch (sivan/dvir/gili/sahar/dev/staging/main)
           DDB_TABLE_NAME="GuestList-${ENVIRONMENT}"
-          # Who am I? (derived from your environment secrets)
+
+          # who am I (must be an IAM user for attachment)
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
           USER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
-
           if [[ "$USER_ARN" != *":user/"* ]]; then
-            echo "This credentials set is not an IAM user (ARN: $USER_ARN). Skipping user attachment."
+            echo "Credentials are not an IAM user (ARN: $USER_ARN). Skipping user attachment."
             exit 0
           fi
-
           USER_NAME="${USER_ARN##*/}"
-          POLICY_NAME="guestlist-app-ddb-rw"
-          POLICY_DOC="$(mktemp)"
 
-          # Build policy JSON for the single app table
+          # per-environment policy to avoid version churn across envs
+          POLICY_NAME="guestlist-app-ddb-rw-${ENVIRONMENT}"
+
+          # desired policy document (scoped to this env's table)
+          POLICY_DOC="$(mktemp)"
           cat > "$POLICY_DOC" <<'JSON'
           {
             "Version": "2012-10-17",
@@ -212,22 +214,55 @@ jobs:
           TABLE_ARN="arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/${DDB_TABLE_NAME}"
           sed -i "s#__TABLE_ARN__#${TABLE_ARN}#g" "$POLICY_DOC"
 
-          # Find or create the customer-managed policy
-          EXISTING_ARN="$(aws iam list-policies --scope Local --query "Policies[?PolicyName=='${POLICY_NAME}'].Arn | [0]" --output text)"
-          if [[ "$EXISTING_ARN" == "None" || -z "$EXISTING_ARN" ]]; then
-            echo "Creating policy ${POLICY_NAME} for ${TABLE_ARN}"
-            POLICY_ARN="$(aws iam create-policy --policy-name "${POLICY_NAME}" --policy-document "file://${POLICY_DOC}" --query Policy.Arn --output text)"
-          else
-            echo "Policy exists: ${EXISTING_ARN} (updating default version)"
-            # Create a new version (policy is immutable per version); set as default
-            POLICY_ARN="$EXISTING_ARN"
-            aws iam create-policy-version --policy-arn "$POLICY_ARN" --policy-document "file://${POLICY_DOC}" --set-as-default >/dev/null
+          # ensure jq & python3 (ubuntu-latest usually has both; install jq if missing)
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y && sudo apt-get install -y jq
           fi
 
-          # Attach to the current IAM user if not already attached
+          # find or create policy
+          EXISTING_ARN="$(aws iam list-policies --scope Local \
+            --query "Policies[?PolicyName=='${POLICY_NAME}'].Arn | [0]" --output text)"
+
+          if [[ "$EXISTING_ARN" == "None" || -z "$EXISTING_ARN" ]]; then
+            echo "Creating policy ${POLICY_NAME} for ${TABLE_ARN}"
+            POLICY_ARN="$(aws iam create-policy \
+              --policy-name "${POLICY_NAME}" \
+              --policy-document "file://${POLICY_DOC}" \
+              --query Policy.Arn --output text)"
+          else
+            POLICY_ARN="$EXISTING_ARN"
+            # compare desired doc vs current default version; only update if different
+            DEF_VER="$(aws iam get-policy --policy-arn "$POLICY_ARN" --query 'Policy.DefaultVersionId' --output text)"
+            CURR_DOC_URLENC="$(aws iam get-policy-version --policy-arn "$POLICY_ARN" --version-id "$DEF_VER" --query 'PolicyVersion.Document' --output text)"
+
+            # decode the URL-encoded JSON returned by AWS
+            python3 - "$CURR_DOC_URLENC" <<'PY' > /tmp/current.json
+            import sys, urllib.parse, json
+            doc = urllib.parse.unquote(sys.argv[1])
+            print(json.dumps(json.loads(doc), sort_keys=True))
+            PY
+            jq -S '.' "$POLICY_DOC" > /tmp/desired.json
+
+            if diff -q /tmp/current.json /tmp/desired.json >/dev/null; then
+              echo "Policy document unchanged; nothing to do."
+            else
+              # prune old non-default versions if at limit (max 5)
+              COUNT="$(aws iam list-policy-versions --policy-arn "$POLICY_ARN" --query 'length(Versions[])' --output text)"
+              if [[ "$COUNT" -ge 5 ]]; then
+                OLDEST_NON_DEFAULT="$(aws iam list-policy-versions --policy-arn "$POLICY_ARN" \
+                  --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@,&CreateDate)[0].VersionId' --output text)"
+                echo "Deleting oldest non-default version: ${OLDEST_NON_DEFAULT}"
+                aws iam delete-policy-version --policy-arn "$POLICY_ARN" --version-id "$OLDEST_NON_DEFAULT"
+              fi
+              echo "Creating new default version for policy ${POLICY_NAME}"
+              aws iam create-policy-version --policy-arn "$POLICY_ARN" \
+                --policy-document "file://${POLICY_DOC}" --set-as-default >/dev/null
+            fi
+          fi
+
+          # attach to current user if not already
           ATTACHED="$(aws iam list-attached-user-policies --user-name "$USER_NAME" \
             --query "AttachedPolicies[?PolicyArn=='${POLICY_ARN}'] | length(@)" --output text)"
-
           if [[ "$ATTACHED" == "0" ]]; then
             echo "Attaching policy to user ${USER_NAME}"
             aws iam attach-user-policy --user-name "$USER_NAME" --policy-arn "$POLICY_ARN"
@@ -235,7 +270,8 @@ jobs:
             echo "Policy already attached to ${USER_NAME}"
           fi
 
-          echo "Done. User ${USER_NAME} has RW permissions on ${DDB_TABLE_NAME}"
+          echo "OK: ${USER_NAME} has RW on ${DDB_TABLE_NAME} via ${POLICY_NAME}"
+
 
       - name: Ensure S3, DynamoDB, and IAM roles exist
         shell: bash
