@@ -7,21 +7,11 @@ locals {
 # Kubernetes resources for Guest List API deployment
 
 # Namespace for the application
+# Always deploy into "guestlist"
 resource "kubernetes_namespace" "guestlist" {
-  # create the namespace only if it isn't "default"
-  count = var.namespace == "default" ? 0 : 1
-
   metadata {
     name = var.namespace
-    labels = {
-      environment = var.environment
-      student     = var.environment
-    }
-  wait_for_default_service_account = true
   }
-
-  # this silences that "legacy SDK" plan warning
-  wait_for_default_service_account = true
 }
 
 resource "kubernetes_namespace" "ns" {
