@@ -14,15 +14,16 @@ resource "kubernetes_namespace" "guestlist" {
   }
 }
 
-resource "kubernetes_namespace" "ns" {
+resource "kubernetes_namespace" "guestlist" {
   metadata {
     name = var.namespace
   }
 }
+
 resource "kubernetes_secret" "guestlist_aws" {
   metadata {
     name      = "guestlist-aws"
-    namespace = kubernetes_namespace.guestlist.metadata[0].name
+    namespace = var.namespace
   }
 
   data = {
@@ -44,7 +45,7 @@ resource "kubernetes_deployment" "guestlist_api" {
 
   metadata {
     name      = "guestlist-deployment"
-    namespace = kubernetes_namespace.guestlist.metadata[0].name
+    namespace = var.namespace
     labels = {
       app         = "guestlist-api"
       environment = var.environment
@@ -170,7 +171,7 @@ resource "kubernetes_deployment" "guestlist_api" {
 resource "kubernetes_service" "guestlist_service" {
   metadata {
     name      = "guestlist-service"
-    namespace = kubernetes_namespace.guestlist.metadata[0].name
+    namespace = var.namespace
     labels = {
       app         = "guestlist-api"
       environment = var.environment
@@ -200,7 +201,7 @@ resource "kubernetes_service" "guestlist_service" {
 resource "kubernetes_config_map" "guestlist_config" {
   metadata {
     name      = "guestlist-config"
-    namespace = kubernetes_namespace.guestlist.metadata[0].name
+    namespace = var.namespace
   }
 
   data = {
@@ -213,7 +214,7 @@ resource "kubernetes_config_map" "guestlist_config" {
 resource "kubernetes_horizontal_pod_autoscaler_v2" "guestlist_hpa" {
   metadata {
     name      = "guestlist-hpa"
-    namespace = kubernetes_namespace.guestlist.metadata[0].name
+    namespace = var.namespace
   }
 
   spec {
