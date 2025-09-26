@@ -8,11 +8,6 @@ locals {
 
 # Namespace for the application
 # Always deploy into "guestlist"
-resource "kubernetes_namespace" "guestlist" {
-  metadata {
-    name = var.namespace
-  }
-}
 
 resource "kubernetes_namespace" "guestlist" {
   metadata {
