@@ -162,6 +162,7 @@ jobs:
           audience: sts.amazonaws.com
           output-env-credentials: true
 
+
       - name: Ensure S3, DynamoDB, and IAM roles exist
         shell: bash
         run: |
@@ -256,6 +257,23 @@ jobs:
                 ]
               }'
           fi
+
+          # Attach AWS EKS policies (this is the fix!)
+          # Cluster Role - AmazonEKSClusterPolicy
+          aws iam attach-role-policy \
+            --role-name "${CLUSTER_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+
+          # Node Group Role - WorkerNode, CNI, ECR
+          aws iam attach-role-policy \
+            --role-name "${NODE_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+          aws iam attach-role-policy \
+            --role-name "${NODE_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          aws iam attach-role-policy \
+            --role-name "${NODE_ROLE}" \
+            --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 
       - name: Export Terraform toggles and resource names
         shell: bash
