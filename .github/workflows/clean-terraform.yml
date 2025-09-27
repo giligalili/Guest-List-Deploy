@@ -6,49 +6,60 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Choose action
-        required: true
+        description: What to run
         type: choice
-        options: [plan, apply, destroy]
+        required: true
         default: plan
+        options: [plan, apply, destroy]
       environment:
-        description: Target environment
-        required: true
+        description: Environment / student
         type: choice
-        options: [sivan, dvir, sahar, gili, dev, staging, main]
-        default: dev
-      namespace:
-        description: Kubernetes namespace
         required: true
-        type: string
-        default: guestlist
+        default: dev
+        options:
+          - dev
+          - staging
+          - main
+          - sivan
+          - dvir
+          - sahar
+          - gili
+
+env:
+  TF_VERSION: 1.9.8
+  TF_CLI_ARGS: -no-color
+  AWS_REGION: us-east-1
 
 jobs:
-  tf:
+  determine-environment:
     runs-on: ubuntu-latest
-    env:
-      TF_VERSION: '1.9.8'
-      TF_CLI_ARGS: -no-color
-      AWS_REGION: us-east-1
+    outputs:
+      environment: ${{ steps.setvars.outputs.environment }}
+      namespace: ${{ steps.setvars.outputs.namespace }}
+      tf_state_bucket: ${{ steps.setvars.outputs.tf_state_bucket }}
+      tf_state_key: ${{ steps.setvars.outputs.tf_state_key }}
+      image_repo: ${{ steps.setvars.outputs.image_repo }}
+      image_tag_prefix: ${{ steps.setvars.outputs.image_tag_prefix }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Compute ENV + backend names exactly once
-      - name: Set computed env values
-        id: setenv
+      - name: Decide environment/namespace/state layout
+        id: setvars
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "push" ]; then
+
+          # 1) ENV resolution
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" == "main" ]]; then
             ENVIRONMENT="main"
-            NAMESPACE="${{ github.event.inputs.namespace || 'guestlist' }}"
           else
-            ENVIRONMENT="${{ github.event.inputs.environment }}"
-            NAMESPACE="${{ github.event.inputs.namespace }}"
+            # From manual picker
+            ENVIRONMENT="${{ github.event.inputs.environment || '' }}"
+            if [[ -z "${ENVIRONMENT}" ]]; then ENVIRONMENT="dev"; fi
           fi
 
-          case "$ENVIRONMENT" in
+          NAMESPACE="guestlist"
+
+          # 2) State bucket/key: students use "-feature" suffix
+          case "${ENVIRONMENT}" in
             sivan|dvir|sahar|gili)
               TF_STATE_BUCKET="guestlist-tfstate-${ENVIRONMENT}-feature"
               ;;
@@ -58,20 +69,108 @@ jobs:
           esac
           TF_STATE_KEY="envs/${ENVIRONMENT}/terraform.tfstate"
 
-          {
-            echo "ENVIRONMENT=$ENVIRONMENT"
-            echo "NAMESPACE=$NAMESPACE"
-            echo "TF_STATE_BUCKET=$TF_STATE_BUCKET"
-            echo "TF_STATE_KEY=$TF_STATE_KEY"
-          } >> "$GITHUB_ENV"
+          # 3) Image repo + tag prefix (students: prefix for latest feature tag; envs: fixed tags)
+          IMAGE_REPO="giligalili/guestlistapi"
+          case "${ENVIRONMENT}" in
+            sivan|dvir|sahar|gili)
+              IMAGE_TAG_PREFIX="${ENVIRONMENT}-feature-"
+              ;;
+            dev)
+              IMAGE_TAG_PREFIX="dev"
+              ;;
+            staging)
+              IMAGE_TAG_PREFIX="staging"
+              ;;
+            main)
+              IMAGE_TAG_PREFIX="latest"
+              ;;
+            *)
+              IMAGE_TAG_PREFIX="dev"
+              ;;
+          esac
 
-      - name: Debug AWS Credentials Inputs
+          {
+            echo "environment=${ENVIRONMENT}"
+            echo "namespace=${NAMESPACE}"
+            echo "tf_state_bucket=${TF_STATE_BUCKET}"
+            echo "tf_state_key=${TF_STATE_KEY}"
+            echo "image_repo=${IMAGE_REPO}"
+            echo "image_tag_prefix=${IMAGE_TAG_PREFIX}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Show resolved values
         run: |
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-            echo "AWS_ACCESS_KEY_ID is missing"
+          echo "ENVIRONMENT:      ${{ steps.setvars.outputs.environment }}"
+          echo "NAMESPACE:        ${{ steps.setvars.outputs.namespace }}"
+          echo "TF_STATE_BUCKET:  ${{ steps.setvars.outputs.tf_state_bucket }}"
+          echo "TF_STATE_KEY:     ${{ steps.setvars.outputs.tf_state_key }}"
+          echo "IMAGE_REPO:       ${{ steps.setvars.outputs.image_repo }}"
+          echo "IMAGE_TAG_PREFIX: ${{ steps.setvars.outputs.image_tag_prefix }}"
+
+  configure-environment:
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    env:
+      ENVIRONMENT: ${{ needs.determine-environment.outputs.environment }}
+      TF_STATE_BUCKET: ${{ needs.determine-environment.outputs.tf_state_bucket }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Ensure S3 state bucket exists (idempotent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          B="${TF_STATE_BUCKET}"
+          R="${AWS_REGION}"
+
+          if aws s3api head-bucket --bucket "$B" 2>/dev/null; then
+            echo "Bucket $B exists."
           else
-            echo "AWS_ACCESS_KEY_ID is set"
-          fi          
+            if [[ "$R" == "us-east-1" ]]; then
+              aws s3api create-bucket --bucket "$B"
+            else
+              aws s3api create-bucket --bucket "$B" --create-bucket-configuration LocationConstraint="$R"
+            fi
+            aws s3api put-bucket-versioning --bucket "$B" --versioning-configuration Status=Enabled
+            aws s3api put-bucket-encryption --bucket "$B" --server-side-encryption-configuration '{
+              "Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+            aws s3api put-public-access-block --bucket "$B" --public-access-block-configuration \
+              BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+          fi
+
+      - name: Ensure DynamoDB lock table exists (idempotent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          T="terraform-locks"
+          if aws dynamodb describe-table --table-name "$T" >/dev/null 2>&1; then
+            echo "DynamoDB table $T exists."
+          else
+            aws dynamodb create-table \
+              --table-name "$T" \
+              --attribute-definitions AttributeName=LockID,AttributeType=S \
+              --key-schema AttributeName=LockID,KeyType=HASH \
+              --billing-mode PAY_PER_REQUEST
+            aws dynamodb wait table-exists --table-name "$T"
+          fi
+
+  terraform:
+    runs-on: ubuntu-latest
+    needs: [determine-environment, configure-environment]
+    env:
+      ENVIRONMENT: ${{ needs.determine-environment.outputs.environment }}
+      NAMESPACE: ${{ needs.determine-environment.outputs.namespace }}
+      TF_STATE_BUCKET: ${{ needs.determine-environment.outputs.tf_state_bucket }}
+      TF_STATE_KEY: ${{ needs.determine-environment.outputs.tf_state_key }}
+      IMAGE_REPO: ${{ needs.determine-environment.outputs.image_repo }}
+      IMAGE_TAG_PREFIX: ${{ needs.determine-environment.outputs.image_tag_prefix }}
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -79,132 +178,116 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          output-env-credentials: true
 
-
-      - name: Set up Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: true
 
-      - name: Terraform Init
+      - name: Resolve image tag (and print selection)
+        id: imagetag
+        shell: bash
         run: |
+          set -euo pipefail
+          repo="${IMAGE_REPO}"
+          prefix="${IMAGE_TAG_PREFIX}"
+          tag=""
+          case "${ENVIRONMENT}" in
+            sivan|dvir|sahar|gili)
+              # Latest tag that starts with "<student>-feature-"
+              tag="$(curl -fsSL "https://hub.docker.com/v2/repositories/${repo}/tags?page_size=100" \
+                | jq -r '.results[] | select(.name | startswith("'"${prefix}"'")) | .name' | head -n1)"
+              ;;
+            dev|staging|main)
+              tag="${prefix}"
+              ;;
+            *)
+              tag="dev"
+              ;;
+          esac
+
+          if [[ -z "${tag}" ]]; then
+            echo "Failed to resolve image tag for ${ENVIRONMENT}" >&2
+            exit 1
+          fi
+
+          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Using image: ${repo}:${tag}"
+          echo "Docker pull hint: docker pull ${repo}:${tag}"
+
+      - name: Terraform Init (remote state)
+        shell: bash
+        run: |
+          set -euo pipefail
           terraform init -input=false -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="key=${TF_STATE_KEY}" \
             -backend-config="region=${AWS_REGION}" \
             -backend-config="dynamodb_table=terraform-locks"
 
-      # --------- ONLY CHANGE NEEDED FOR IMAGES ----------
-      # Resolve the correct image tag from Docker Hub by environment
-      - name: Resolve image tag from Docker Hub
-        id: image
+      - name: Terraform Plan
+        if: |
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'plan') ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        shell: bash
         run: |
           set -euo pipefail
-          ENV="${ENVIRONMENT}"
-          REPO="giligalili/guestlistapi"
-
-          # Public query (no login); newest first page is enough
-          JSON="$(curl -s "https://hub.docker.com/v2/repositories/${REPO}/tags?page_size=100")" || JSON="{}"
-
-          python - "$ENV" <<'PY' > /tmp/tag.txt
-          import sys, json
-          env=sys.argv[1].strip().lower()
-          try:
-            data=json.loads("""%s""" % """$JSON""")
-          except Exception:
-            data={"results":[]}
-          results=sorted(data.get("results",[]), key=lambda r:r.get("last_updated",""), reverse=True)
-          names=[r.get("name","") for r in results if r.get("name")]
-
-          students={"sivan","dvir","sahar","gili"}
-          prefix = f"{env}-feature-" if env in students else f"{env}-"
-
-          # pick the newest tag that starts with the expected prefix
-          tag = next((n for n in names if n.startswith(prefix)), "")
-
-          # fallback for main if only 'latest' exists
-          if not tag and env=="main" and "latest" in names:
-              tag="latest"
-
-          print(tag)
-          PY
-
-          TAG="$(cat /tmp/tag.txt || true)"
-          [ -z "${TAG:-}" ] && TAG="latest"
-
-          echo "IMAGE_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "Picked image: ${REPO}:${TAG}"
-      # --------------------------------------------------
-
-      - name: Show picked image
-        run: |
-          echo "Using image: giligalili/guestlistapi:${IMAGE_TAG}"
-
-      - name: Terraform Validate
-        run: terraform validate
-
-      # PLAN (manual)
-      - name: Terraform Plan
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan' }}
-        run: |
           terraform plan -input=false \
             -var="environment=${ENVIRONMENT}" \
             -var="aws_region=${AWS_REGION}" \
             -var="namespace=${NAMESPACE}" \
-            -var="image_tag=${IMAGE_TAG}"
-
-      # APPLY path (auto on push main OR manual 'apply')
-      - name: Terraform Plan (apply)
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') }}
-        run: |
-          terraform plan -input=false -out="tfplan-${ENVIRONMENT}" \
-            -var="environment=${ENVIRONMENT}" \
-            -var="aws_region=${AWS_REGION}" \
-            -var="namespace=${NAMESPACE}" \
-            -var="image_tag=${IMAGE_TAG}"
+            -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
+            -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            -out=tfplan-${ENVIRONMENT}
 
       - name: Terraform Apply
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') }}
-        run: terraform apply -input=false "tfplan-${ENVIRONMENT}"
-
-      # DESTROY (manual)
-      - name: Terraform Destroy
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
+        if: |
+          (github.event_name == 'workflow_dispatch' && inputs.action == 'apply') ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        shell: bash
         run: |
-          terraform destroy -auto-approve -input=false \
+          set -euo pipefail
+          # If a plan exists from the previous step, use it; otherwise apply directly (push on main path).
+          if [[ -f "tfplan-${ENVIRONMENT}" ]]; then
+            terraform apply -input=false -auto-approve "tfplan-${ENVIRONMENT}"
+          else
+            terraform apply -input=false -auto-approve \
+              -var="environment=${ENVIRONMENT}" \
+              -var="aws_region=${AWS_REGION}" \
+              -var="namespace=${NAMESPACE}" \
+              -var="image_tag=${{ steps.imagetag.outputs.image_tag }}" \
+              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          fi
+
+      - name: Show LB URL & health check
+        if: |
+          (github.event_name == 'workflow_dispatch' && inputs.action != 'destroy') ||
+          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        shell: bash
+        run: |
+          set -euo pipefail
+          LB="$(terraform output -raw load_balancer_hostname || true)"
+          if [[ -z "${LB}" ]]; then
+            echo "No 'load_balancer_hostname' output found."
+            exit 0
+          fi
+          echo "Load balancer: http://${LB}"
+          echo "Healthz:"
+          curl -fsS -m 5 "http://${LB}/healthz" || true
+          echo "Readyz:"
+          curl -fsS -m 5 "http://${LB}/readyz" || true
+
+      - name: Terraform Destroy
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'destroy' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform destroy -input=false -auto-approve \
             -var="environment=${ENVIRONMENT}" \
             -var="aws_region=${AWS_REGION}" \
             -var="namespace=${NAMESPACE}" \
-            -var="image_tag=ignore"
-
-      # Optional: show LB URL & health after apply
-      - name: Install kubectl
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') }}
-        uses: azure/setup-kubectl@v4
-
-      - name: Show LB URL and health check
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') }}
-        run: |
-          set -euo pipefail
-          # get cluster name output; tolerate missing
-          CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || true)"
-          [ -z "$CLUSTER_NAME" ] && CLUSTER_NAME="guestlist-cluster"
-
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "${AWS_REGION}"
-
-          if kubectl -n "${NAMESPACE}" get svc guestlist-service >/dev/null 2>&1; then
-            HOST=$(kubectl -n "${NAMESPACE}" get svc guestlist-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-          else
-            HOST=$(kubectl -n "${NAMESPACE}" get svc -l app=guestlist-api -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-          fi
-
-          if [ -z "${HOST:-}" ]; then
-            echo "::warning::Could not resolve LoadBalancer hostname."
-            exit 0
-          fi
-
-          URL="http://${HOST}:1111/healthz"
-          echo "LB URL: ${URL}"
-          curl -fsS --max-time 10 "$URL" || true
+            -var="image_tag=ignore" \
+            -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
