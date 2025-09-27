@@ -276,23 +276,62 @@ jobs:
               -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
           fi
 
-      - name: Show LB URL & health check
-        if: |
-          (github.event_name == 'workflow_dispatch' && inputs.action != 'destroy') ||
-          (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      - name: Show LB URL & health check (port 9999, wait)
+        if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply') || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
         shell: bash
         run: |
           set -euo pipefail
-          LB="$(terraform output -raw load_balancer_hostname || true)"
+
+          # Try to read IP first; if empty, use hostname
+          LB="$(terraform output -raw load_balancer_ip 2>/dev/null || true)"
+          USE_DNS=0
           if [[ -z "${LB}" ]]; then
-            echo "No 'load_balancer_hostname' output found."
-            exit 0
+            LB="$(terraform output -raw load_balancer_hostname 2>/dev/null || true)"
+            USE_DNS=1
           fi
-          echo "Load balancer: http://${LB}"
-          echo "Healthz:"
-          curl -fsS -m 5 "http://${LB}/healthz" || true
-          echo "Readyz:"
-          curl -fsS -m 5 "http://${LB}/readyz" || true
+
+          if [[ -z "${LB}" ]]; then
+            echo "Failed to read Terraform output 'load_balancer_ip' or 'load_balancer_hostname'."
+            exit 1
+          fi
+
+          PORT=9999
+          BASE_URL="http://${LB}:${PORT}"
+          echo "Load Balancer target: ${BASE_URL}"
+
+          # If hostname, wait for DNS to resolve
+          if [[ "${USE_DNS}" -eq 1 ]]; then
+            echo "Waiting for DNS to resolve for ${LB}..."
+            for i in {1..120}; do
+              if getent hosts "${LB}" >/dev/null 2>&1; then
+                echo "DNS resolved on attempt #${i}"
+                break
+              fi
+              sleep 5
+              [[ $i -eq 120 ]] && { echo "Timed out waiting for DNS (${LB})"; exit 1; }
+            done
+          fi
+
+          # Health polling: try /healthz then /
+          ATTEMPTS=30
+          SLEEP=10
+          for i in $(seq 1 $ATTEMPTS); do
+            CODE="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "${BASE_URL}/healthz" || echo "000")"
+            if [[ "$CODE" -ge 200 && "$CODE" -lt 400 ]]; then
+              echo "OK: HTTP $CODE from ${BASE_URL}/healthz"
+              exit 0
+            fi
+            CODE_ROOT="$(curl -sS -m 5 -o /dev/null -w '%{http_code}' "${BASE_URL}/" || echo "000")"
+            if [[ "$CODE_ROOT" -ge 200 && "$CODE_ROOT" -lt 400 ]]; then
+              echo "OK: HTTP $CODE_ROOT from ${BASE_URL}/"
+              exit 0
+            fi
+            echo "Attempt $i/$ATTEMPTS: healthz=$CODE root=$CODE_ROOT — retrying in ${SLEEP}s..."
+            sleep $SLEEP
+          done
+
+          echo "ERROR: Service not healthy after $((ATTEMPTS*SLEEP))s at ${BASE_URL}"
+          exit 1
 
       - name: Terraform Destroy
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'destroy' }}
