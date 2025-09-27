@@ -1,7 +1,9 @@
 name: Guest List Clean Terraform (Deploy)
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ main ]            # auto on main only
+  workflow_dispatch:              # manual everywhere
     inputs:
       action:
         type: choice
@@ -12,25 +14,15 @@ on:
         type: choice
         description: Choose environment
         default: dev
-        options:
-          - dev
-          - staging
-          - main
-          - sivan
-          - dvir
-          - sahar
-          - gili
+        options: [dev, staging, main, sivan, dvir, sahar, gili]
       branch:
         description: Branch to run on (blank = current)
         required: false
         default: ""
       image_tag:
-        description: Docker image tag (blank = auto)
+        description: Docker image tag override (blank = auto)
         required: false
         default: ""
-  push:
-    branches:
-      - main
 
 env:
   TF_VERSION: 1.9.8
@@ -52,10 +44,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ACTION="${{ github.event.inputs.action || 'plan' }}"
-          ENV_IN="${{ github.event.inputs.env || '' }}"
-          BRANCH_IN="${{ github.event.inputs.branch || '' }}"
-          IMG_IN="${{ github.event.inputs.image_tag || '' }}"
+          ACTION="${{ github.event_name == 'workflow_dispatch' && inputs.action != '' && inputs.action || 'plan' }}"
+          ENV_IN="${{ github.event_name == 'workflow_dispatch' && inputs.env    != '' && inputs.env    || 'dev'  }}"
+          BRANCH_IN="${{ github.event_name == 'workflow_dispatch' && inputs.branch != '' && inputs.branch || '' }}"
+          IMG_IN="${{ github.event_name == 'workflow_dispatch' && inputs.image_tag != '' && inputs.image_tag || '' }}"
 
           # branch to use
           if [ -n "$BRANCH_IN" ]; then
@@ -64,10 +56,8 @@ jobs:
             BRANCH="${GITHUB_REF_NAME}"
           fi
 
-          # env is explicit from dropdown
           ENV="$ENV_IN"
 
-          # student envs use -feature bucket suffix
           case "$ENV" in
             sivan|dvir|sahar|gili)
               BUCKET="guestlist-tfstate-${ENV}-feature"
@@ -94,9 +84,11 @@ jobs:
   tf:
     needs: pick
     runs-on: ubuntu-latest
+    # Keep GH Environment scoping matching the selected env (as before)
     environment: ${{ needs.pick.outputs.env }}
     env:
-      AWS_REGION: ${{ env.AWS_REGION }}
+      # Avoid parser issues: set literal here instead of using ${{ env.* }} expressions
+      AWS_REGION: us-east-1
       ENVIRONMENT: ${{ needs.pick.outputs.env }}
       TF_STATE_BUCKET: ${{ needs.pick.outputs.state_bucket }}
       TF_STATE_KEY: ${{ needs.pick.outputs.state_key }}
@@ -117,7 +109,8 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-region: ${{ env.AWS_REGION }}
+          # Use literal to dodge the earlier parser complaint
+          aws-region: us-east-1
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
@@ -129,8 +122,12 @@ jobs:
           TBL="terraform-locks"
 
           if ! aws s3api head-bucket --bucket "$BKT" 2>/dev/null; then
-            aws s3api create-bucket --bucket "$BKT" --region "${AWS_REGION}" \
-              --create-bucket-configuration LocationConstraint="${AWS_REGION}" || true
+            if [ "${AWS_REGION}" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$BKT" || true
+            else
+              aws s3api create-bucket --bucket "$BKT" --region "${AWS_REGION}" \
+                --create-bucket-configuration LocationConstraint="${AWS_REGION}" || true
+            fi
           fi
           aws s3api put-bucket-versioning --bucket "$BKT" --versioning-configuration Status=Enabled || true
           aws s3api put-bucket-encryption --bucket "$BKT" \
