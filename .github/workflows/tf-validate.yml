@@ -1,3 +1,5 @@
+name: Terraform • Validate
+
 on:
   workflow_call:
   push:
@@ -5,14 +7,23 @@ on:
     paths:
       - "**.tf"
       - "**.tfvars"
-      - "**.yml"
-      - "**.yaml"
-      - ".github/workflows/**"
   pull_request:
     branches: [ "*-feature", "dev", "staging", "main", "dvir-feature" ]
     paths:
       - "**.tf"
       - "**.tfvars"
-      - "**.yml"
-      - "**.yaml"
-      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate
