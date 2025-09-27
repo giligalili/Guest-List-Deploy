@@ -779,21 +779,6 @@ terraform apply -var="aws_region=us-west-2" \
 
 ---
 
-## 🤝 Team Contributions
-
-**Infrastructure Development:**
-- **Gili**: EKS cluster configuration, Kubernetes manifests, security groups
-- **Sivan**: VPC networking, subnet design, NAT gateway optimization
-- **Sahar**: CI/CD pipeline, GitHub Actions, environment management strategy  
-- **Dvir**: DynamoDB configuration, IAM roles, cost optimization analysis
-
-**Collaboration:**
-- All team members contributed to code review and testing
-- Shared responsibility for documentation and troubleshooting guides
-- Cross-training on AWS services and Terraform best practices
-
----
-
 ## 🔄 Deployment Workflow
 
 ### Development Workflow
