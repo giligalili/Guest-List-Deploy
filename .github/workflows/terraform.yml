@@ -464,16 +464,16 @@ jobs:
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform state list || true
 
-      - name: Import guestlist namespace if it already exists
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'apply' }}
-        shell: bash
-        run: |
-          set -e
-          if kubectl get ns guestlist >/dev/null 2>&1; then
+#      - name: Import guestlist namespace if it already exists
+#        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.action == 'apply' }}
+#        shell: bash
+#        run: |
+#          set -e
+#          if kubectl get ns guestlist >/dev/null 2>&1; then
             # import only if not already in state
-            terraform state show kubernetes_namespace.guestlist >/dev/null 2>&1 || \
-            terraform import kubernetes_namespace.guestlist guestlist
-          fi
+#            terraform state show kubernetes_namespace.guestlist >/dev/null 2>&1 || \
+#            terraform import kubernetes_namespace.guestlist guestlist
+#          fi
 
 ###### Temp start ######
 #      - name: Configure kubeconfig for EKS
