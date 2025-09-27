@@ -114,6 +114,11 @@ jobs:
       ENVIRONMENT: ${{ needs.determine-environment.outputs.environment }}
       TF_STATE_BUCKET: ${{ needs.determine-environment.outputs.tf_state_bucket }}
     steps:
+      - name: Check AWS secrets are present
+        run: |
+          test -n "${{ secrets.AWS_ACCESS_KEY_ID }}" || { echo "::error::AWS_ACCESS_KEY_ID is missing"; exit 1; }
+          test -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || { echo "::error::AWS_SECRET_ACCESS_KEY is missing"; exit 1; }
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -171,6 +176,11 @@ jobs:
       IMAGE_TAG_PREFIX: ${{ needs.determine-environment.outputs.image_tag_prefix }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check AWS secrets are present
+        run: |
+          test -n "${{ secrets.AWS_ACCESS_KEY_ID }}" || { echo "::error::AWS_ACCESS_KEY_ID is missing"; exit 1; }
+          test -n "${{ secrets.AWS_SECRET_ACCESS_KEY }}" || { echo "::error::AWS_SECRET_ACCESS_KEY is missing"; exit 1; }
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
