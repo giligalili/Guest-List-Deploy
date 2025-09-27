@@ -1,5 +1,3 @@
-name: Terraform • Main Controller
-
 on:
   workflow_dispatch:
     inputs:
@@ -13,24 +11,22 @@ on:
         required: false
         default: dev
         type: choice
-        options: [ dev, staging, main ]
+        options: [ dev, staging, main, dvir-feature ]
 
-jobs:
-  call-validate:
-    if: ${{ github.event.inputs.action == 'validate' }}
-    uses: ./.github/workflows/tf-validate.yml
+  pull_request:
+    branches: [ "*-feature", "dev", "staging", "main", "dvir-feature" ]
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - "**.yml"
+      - "**.yaml"
 
-  call-plan:
-    if: ${{ github.event.inputs.action == 'plan' }}
-    uses: ./.github/workflows/tf-plan.yml
-
-  call-apply:
-    if: ${{ github.event.inputs.action == 'apply-dev' }}
-    uses: ./.github/workflows/tf-apply-dev.yml
-
-  call-destroy:
-    if: ${{ github.event.inputs.action == 'destroy' }}
-    uses: ./.github/workflows/tf-destroy.yml
-    with:
-      environment: ${{ github.event.inputs.environment }}
-      confirm: destroy ${{ github.event.inputs.environment }}
+  push:
+    branches: [ main, dev, dvir-feature ]
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - "**.yml"
+      - "**.yaml"
+    paths-ignore:
+      - ".github/workflows/**"
