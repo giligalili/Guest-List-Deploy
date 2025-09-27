@@ -2,6 +2,7 @@ name: Terraform • Plan
 
 on:
   workflow_call:
+  workflow_dispatch: {}
 
 permissions:
   id-token: write
@@ -51,7 +52,6 @@ jobs:
       - run: terraform workspace select "${TF_WORKSPACE}" || terraform workspace new "${TF_WORKSPACE}"
       - run: terraform plan -input=false -out=tfplan.bin
       - run: terraform show -no-color tfplan.bin > tfplan.txt
-
       - uses: actions/upload-artifact@v4
         with:
           name: tfplan-${{ github.run_id }}
