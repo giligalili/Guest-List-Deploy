@@ -177,6 +177,8 @@ jobs:
       IMAGE_REPO: ${{ needs.determine-environment.outputs.image_repo }}
       IMAGE_TAG_PREFIX: ${{ needs.determine-environment.outputs.image_tag_prefix }}
       TF_VAR_state_bucket_name: ${{ needs.determine-environment.outputs.tf_state_bucket }}
+      TF_VAR_cluster_role_name: guestlist-cluster-cluster-role
+      TF_VAR_node_group_role_name: guestlist-cluster-node-group-role
     steps:
       - uses: actions/checkout@v4
 
