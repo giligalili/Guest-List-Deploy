@@ -2,6 +2,7 @@ name: Terraform • Validate
 
 on:
   workflow_call:
+  workflow_dispatch: {}
   push:
     branches: [ main, dvir-feature ]
     paths:
