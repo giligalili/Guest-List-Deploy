@@ -4,14 +4,6 @@ variable "manage_iam" {
   default     = false
 }
 
-variable "cluster_role_name" {
-  type = string
-}
-
-variable "node_group_role_name" {
-  type = string
-}
-
 # IAM Role for EKS Cluster
 resource "aws_iam_role" "cluster" {
   count = var.manage_iam ? 1 : 0
