@@ -440,6 +440,19 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'init' }}
         run: echo "Terraform init completed successfully."
 
+      - name: Export cluster name from state
+        id: cluster
+        run: |
+          set -euo pipefail
+          CLUSTER_NAME="$(terraform output -raw cluster_name)"
+          echo "CLUSTER_NAME=${CLUSTER_NAME}" >> "$GITHUB_ENV"
+          echo "Cluster name: ${CLUSTER_NAME}"
+
+      - name: Configure kubeconfig
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+        run: aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "${{ env.AWS_REGION }}"        
+
       - name: Terraform State List
         working-directory: ${{ steps.find-dir.outputs.dir }}
         run: terraform state list || true
