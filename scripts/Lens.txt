@@ -1,0 +1,17 @@
+זו הדרך הנכונה במחשב שלנו אחרי שהוספנו את ה secret של המשתמש שנתנו לגילי
+הוספת המשתמש מקומית
+aws configure
+AWS Access Key ID [None]: <YourAccessKeyID>
+AWS Secret Access Key [None]: <YourSecretAccessKey>
+Default region name [None]: us-east-1 
+Default output format [None]: json
+
+לאחר מכן מריצים את הפקודות הבאות:
+
+aws eks update-kubeconfig --name guestlist-cluster --region us-east-1 --alias guestlist-cluster
+kubectl config use-context guestlist-cluster
+kubectl config get-contexts
+kubectl get ns
+kubectl get deploy,sts,ds,po,svc -A
+
+ברגע שתפתחו LENS זה יופיע אוטומטית

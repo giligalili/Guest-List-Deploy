@@ -1,0 +1,18 @@
+# Set your environment/region (change sivan if needed)
+$EnvName = "sivan"
+$Region  = "us-east-1"
+$Table   = "GuestList-$EnvName"
+
+$env:AWS_DEFAULT_REGION = $Region
+# If you use a named AWS profile:
+# $env:AWS_PROFILE = "your-profile-name"
+
+
+aws dynamodb describe-table --table-name $Table `
+  --query "Table.[TableStatus,ItemCount,KeySchema]" --output table
+
+aws dynamodb scan --table-name $Table --select "COUNT" --output table
+
+
+aws dynamodb scan --table-name $Table `
+  --projection-expression "id" --limit 50 --consistent-read --output table

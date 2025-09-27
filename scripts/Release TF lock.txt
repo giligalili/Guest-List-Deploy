@@ -1,0 +1,18 @@
+# Set your params
+$Region = "us-east-1"
+$Table  = "terraform-locks"
+$LockId = "guestlist-tfstate-sivan-feature/envs/sivan/terraform.tfstate"
+
+# Build the JSON key file
+$KeyObj  = @{ LockID = @{ S = $LockId } } | ConvertTo-Json -Compress
+$KeyFile = "$env:TEMP\ddb-lock-key.json"
+Set-Content -Path $KeyFile -Value $KeyObj -NoNewline
+
+# (Optional) See the row
+aws dynamodb get-item --region $Region --table-name $Table --key ("file://{0}" -f $KeyFile) --output json
+
+# Delete the lock row
+aws dynamodb delete-item --region $Region --table-name $Table --key ("file://{0}" -f $KeyFile)
+
+# Verify it's gone (should return {})
+aws dynamodb get-item --region $Region --table-name $Table --key ("file://{0}" -f $KeyFile) --output json
