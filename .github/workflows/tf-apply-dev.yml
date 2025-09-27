@@ -2,13 +2,6 @@ name: Terraform • Apply (dev)
 
 on:
   workflow_call:
-  push:
-    branches: [ dev ]
-    paths:
-      - "**.tf"
-      - "**.tfvars"
-      - "**.yml"
-      - "**.yaml"
 
 permissions:
   id-token: write
@@ -39,14 +32,12 @@ jobs:
             | sed -E 's#[^a-z0-9-]#-#g' | sed -E 's#-+#-#g' | sed -E 's#(^-)|(-$)##g')"
           echo "name=guestlist-tfstate-$BRANCH_SANITIZED" >> $GITHUB_OUTPUT
 
-      - name: Configure AWS (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
@@ -57,11 +48,6 @@ jobs:
             -backend-config="key=${TF_STATE_KEY}" \
             -backend-config="region=${AWS_REGION}"
 
-      - name: Select/Create workspace
-        run: terraform workspace select "${TF_WORKSPACE}" || terraform workspace new "${TF_WORKSPACE}"
-
-      - name: Plan (fresh)
-        run: terraform plan -input=false -out=tfplan.bin
-
-      - name: Apply (auto-approve)
-        run: terraform apply -input=false -auto-approve tfplan.bin
+      - run: terraform workspace select "${TF_WORKSPACE}" || terraform workspace new "${TF_WORKSPACE}"
+      - run: terraform plan -input=false -out=tfplan.bin
+      - run: terraform apply -input=false -auto-approve tfplan.bin
