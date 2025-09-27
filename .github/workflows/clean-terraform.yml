@@ -1,4 +1,4 @@
-name: Guest List Terraform
+name: Guest List Clean Terraform
 
 on:
   workflow_dispatch:
