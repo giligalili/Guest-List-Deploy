@@ -440,19 +440,20 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'init' }}
         run: echo "Terraform init completed successfully."
 
-      - name: Export cluster name from state (safe)
-        env:
-          TF_CLI_ARGS: -no-color
+      - name: Resolve cluster name (no TF)
         run: |
           set -euo pipefail
-          # Try to read the output without polluting $GITHUB_ENV with warnings
-          CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || true)"
-          if [ -z "${CLUSTER_NAME}" ]; then
-            # Fallback name you actually use
-            CLUSTER_NAME="guestlist-cluster"
+          CN="${CLUSTER_NAME:-}"
+          if [ -z "$CN" ] || [ ${#CN} -gt 100 ]; then
+            CN="$(aws eks list-clusters --region "${AWS_REGION}" \
+                  --query "clusters[?starts_with(@, 'guestlist')]|[0]" --output text)"
           fi
-          echo "CLUSTER_NAME=${CLUSTER_NAME}" >> "$GITHUB_ENV"
-          echo "Cluster name: ${CLUSTER_NAME}"
+          if [ -z "$CN" ] || [ "$CN" = "None" ]; then
+            echo "No EKS cluster found matching 'guestlist*' in ${AWS_REGION}" >&2
+            exit 1
+          fi
+          echo "CLUSTER_NAME=$CN" >> "$GITHUB_ENV"
+          echo "Using cluster: $CN"
 
       - name: Configure kubeconfig
         env:
