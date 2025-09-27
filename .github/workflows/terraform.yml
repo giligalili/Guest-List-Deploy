@@ -633,6 +633,7 @@ jobs:
           AWS_REGION: ${{ env.AWS_REGION }}
           ENVIRONMENT: ${{ env.ENVIRONMENT }}
           TF_STATE_BUCKET: ${{ env.TF_STATE_BUCKET }}
+          TF_STATE_KEY: envs/${{ env.ENVIRONMENT }}/terraform.tfstate
           KUBECONFIG_PATH: kubeconfig-${{ env.ENVIRONMENT }}.yaml
         run: |
           set -euo pipefail
