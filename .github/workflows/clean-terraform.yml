@@ -4,21 +4,28 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: plan / apply / destroy
         type: choice
-        required: true
+        description: plan / apply / destroy
         default: plan
         options: [plan, apply, destroy]
       env:
-        description: Environment name (dev/staging/main or student name). Leave empty to derive from branch.
-        required: false
-        default: ""
+        type: choice
+        description: Choose environment
+        default: dev
+        options:
+          - dev
+          - staging
+          - main
+          - sivan
+          - dvir
+          - sahar
+          - gili
       branch:
-        description: Branch to run on (defaults to current)
+        description: Branch to run on (blank = current)
         required: false
         default: ""
       image_tag:
-        description: "Image tag to deploy (defaults: <env>-feature on feature branches, otherwise latest)"
+        description: Docker image tag (blank = auto)
         required: false
         default: ""
   push:
@@ -40,45 +47,42 @@ jobs:
       image_tag: ${{ steps.pick.outputs.image_tag }}
       state_bucket: ${{ steps.pick.outputs.state_bucket }}
       state_key: ${{ steps.pick.outputs.state_key }}
-      is_feature: ${{ steps.pick.outputs.is_feature }}
     steps:
       - id: pick
         shell: bash
         run: |
           set -euo pipefail
-
-          BRANCH="${{ github.event.inputs.branch || '' }}"
-          if [ -z "$BRANCH" ]; then BRANCH="${GITHUB_REF_NAME}"; fi
-
           ACTION="${{ github.event.inputs.action || 'plan' }}"
-
-          # env from input or derived from branch
           ENV_IN="${{ github.event.inputs.env || '' }}"
-          if [ -n "$ENV_IN" ]; then
-            ENV="$ENV_IN"
-          else
-            if [[ "$BRANCH" == *-feature ]]; then
-              ENV="${BRANCH%-feature}"
-            else
-              ENV="dev"
-            fi
-          fi
-
-          if [[ "$BRANCH" == *-feature ]]; then
-            IS_FEATURE=1
-            BUCKET="guestlist-tfstate-${ENV}-feature"
-          else
-            IS_FEATURE=0
-            BUCKET="guestlist-tfstate-${ENV}"
-          fi
-          KEY="envs/${ENV}/terraform.tfstate"
-
+          BRANCH_IN="${{ github.event.inputs.branch || '' }}"
           IMG_IN="${{ github.event.inputs.image_tag || '' }}"
-          if [ -n "$IMG_IN" ]; then
-            IMG="$IMG_IN"
+
+          # branch to use
+          if [ -n "$BRANCH_IN" ]; then
+            BRANCH="$BRANCH_IN"
           else
-            if [ "$IS_FEATURE" = "1" ]; then IMG="${ENV}-feature"; else IMG="latest"; fi
+            BRANCH="${GITHUB_REF_NAME}"
           fi
+
+          # env is explicit from dropdown
+          ENV="$ENV_IN"
+
+          # student envs use -feature bucket suffix
+          case "$ENV" in
+            sivan|dvir|sahar|gili)
+              BUCKET="guestlist-tfstate-${ENV}-feature"
+              [ -z "$IMG_IN" ] && IMG="${ENV}-feature" || IMG="$IMG_IN"
+              ;;
+            dev|staging|main)
+              BUCKET="guestlist-tfstate-${ENV}"
+              [ -z "$IMG_IN" ] && IMG="latest" || IMG="$IMG_IN"
+              ;;
+            *)
+              echo "::error::Unsupported env '$ENV'"; exit 1
+              ;;
+          esac
+
+          KEY="envs/${ENV}/terraform.tfstate"
 
           echo "env=$ENV" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
@@ -86,12 +90,10 @@ jobs:
           echo "image_tag=$IMG" >> "$GITHUB_OUTPUT"
           echo "state_bucket=$BUCKET" >> "$GITHUB_OUTPUT"
           echo "state_key=$KEY" >> "$GITHUB_OUTPUT"
-          echo "is_feature=$IS_FEATURE" >> "$GITHUB_OUTPUT"
 
   tf:
     needs: pick
     runs-on: ubuntu-latest
-    # Binds to a GitHub Environment with the same name if you ever add it (optional)
     environment: ${{ needs.pick.outputs.env }}
     env:
       AWS_REGION: ${{ env.AWS_REGION }}
@@ -119,16 +121,16 @@ jobs:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-      - name: Ensure state backend (S3 & DynamoDB)
+      - name: Ensure backend (S3 & DynamoDB)
         shell: bash
         run: |
           set -euo pipefail
           BKT="${TF_STATE_BUCKET}"
-          KEY="${TF_STATE_KEY}"
           TBL="terraform-locks"
 
           if ! aws s3api head-bucket --bucket "$BKT" 2>/dev/null; then
-            aws s3api create-bucket --bucket "$BKT" --region "${AWS_REGION}" --create-bucket-configuration LocationConstraint="${AWS_REGION}" || true
+            aws s3api create-bucket --bucket "$BKT" --region "${AWS_REGION}" \
+              --create-bucket-configuration LocationConstraint="${AWS_REGION}" || true
           fi
           aws s3api put-bucket-versioning --bucket "$BKT" --versioning-configuration Status=Enabled || true
           aws s3api put-bucket-encryption --bucket "$BKT" \
@@ -158,7 +160,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          terraform plan -lock-timeout=60s -parallelism=7 -input=false -no-color \
+          terraform plan -lock-timeout=60s -parallelism=7 -input=false \
             -var="environment=${ENVIRONMENT}" \
             -var="aws_region=${AWS_REGION}" \
             -var="namespace=${NAMESPACE}" \
@@ -173,7 +175,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          terraform plan -lock-timeout=60s -parallelism=7 -input=false -no-color \
+          terraform plan -lock-timeout=60s -parallelism=7 -input=false \
             -var="environment=${ENVIRONMENT}" \
             -var="aws_region=${AWS_REGION}" \
             -var="namespace=${NAMESPACE}" \
@@ -182,24 +184,19 @@ jobs:
             -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
             -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
             -out="tfplan-${ENVIRONMENT}"
-
           terraform apply -input=false -auto-approve "tfplan-${ENVIRONMENT}"
 
-      - name: Show LB URL and health check
+      - name: Show LB URL and health
         if: ${{ needs.pick.outputs.action == 'apply' }}
         shell: bash
         run: |
           set -euo pipefail
-          # If your outputs.tf exposes the cluster name, try to read it; fallback to known name
           CN="$(terraform output -raw cluster_name 2>/dev/null || true)"
-          if [ -z "$CN" ]; then CN="guestlist-cluster"; fi
-
+          [ -z "$CN" ] && CN="guestlist-cluster"
           aws eks update-kubeconfig --name "$CN" --region "${AWS_REGION}"
 
-          # Grab LB hostname from the service
           SVC_HOST="$(kubectl -n ${NAMESPACE} get svc -l app=guestlist-api -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
           echo "LoadBalancer: ${SVC_HOST}"
-
           for p in /readyz /healthz /; do
             echo "--- curl http://${SVC_HOST}${p}"
             (curl -fsS "http://${SVC_HOST}${p}" || true)
