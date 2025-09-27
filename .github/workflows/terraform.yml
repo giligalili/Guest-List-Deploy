@@ -3,7 +3,6 @@ name: Guest List Terraform Deploy (Dynamic Environment)
 on:
   push:
     branches:
-      - "*-feature"
       - dev
       - staging
       - main
