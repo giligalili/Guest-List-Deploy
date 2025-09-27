@@ -1,6 +1,7 @@
 name: Terraform • Apply (dev)
 
 on:
+  workflow_call:
   push:
     branches: [ dev ]
     paths:
@@ -8,7 +9,6 @@ on:
       - "**.tfvars"
       - "**.yml"
       - "**.yaml"
-  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -25,10 +25,10 @@ jobs:
     environment: dev
     concurrency:
       group: tf-apply-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
-      # ✅ הפקת שם דלי עפ״י שם ה-branch (פה זה יהיה "dev")
       - name: Derive S3 bucket from branch
         id: bucket
         shell: bash
@@ -36,9 +36,7 @@ jobs:
           BRANCH="${GITHUB_REF_NAME}"
           BRANCH_SANITIZED="$(echo "$BRANCH" \
             | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's#[^a-z0-9-]#-#g' \
-            | sed -E 's#-+#-#g' \
-            | sed -E 's#(^-)|(-$)##g')"
+            | sed -E 's#[^a-z0-9-]#-#g' | sed -E 's#-+#-#g' | sed -E 's#(^-)|(-$)##g')"
           echo "name=guestlist-tfstate-$BRANCH_SANITIZED" >> $GITHUB_OUTPUT
 
       - name: Configure AWS (OIDC)
