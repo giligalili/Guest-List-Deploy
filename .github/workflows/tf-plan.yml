@@ -1,0 +1,67 @@
+name: Terraform • Plan
+
+on:
+  pull_request:
+    branches: [ "*-feature", "dev", "staging", "main" ]
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - "**.yml"
+      - "**.yaml"
+      - ".github/workflows/**"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_WORKSPACE: dev
+  TF_STATE_BUCKET: guestlist-tfstate-28
+  TF_STATE_KEY: dev/terraform.tfstate
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: tf-plan-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+
+      - name: Terraform init (S3 backend)
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="region=${AWS_REGION}"
+
+      - name: Select/Create workspace
+        run: terraform workspace select "${TF_WORKSPACE}" || terraform workspace new "${TF_WORKSPACE}"
+
+      - name: Terraform plan
+        run: terraform plan -input=false -out=tfplan.bin
+
+      - name: Show plan (human)
+        run: terraform show -no-color tfplan.bin > tfplan.txt
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.run_id }}
+          path: |
+            tfplan.bin
+            tfplan.txt
