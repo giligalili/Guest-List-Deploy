@@ -125,6 +125,9 @@ jobs:
     needs: determine-environment
     runs-on: ubuntu-latest
     environment: ${{ needs.determine-environment.outputs.environment }}
+    concurrency:
+      group: tf-${{ github.workflow }}-${{ needs.determine-environment.outputs.environment }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout repo
@@ -422,8 +425,10 @@ jobs:
         run: |
           terraform init -input=false -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=envs/${ENVIRONMENT}/terraform.tfstate" \
-            -backend-config="region=${AWS_REGION:-us-east-1}"
+            -backend-config="key=terraform.tfstate" \
+            -backend-config="workspace_key_prefix=envs" \
+            -backend-config="region=${AWS_REGION:-us-east-1}" \
+            -backend-config="dynamodb_table=terraform-locks"
 
       - name: Select/Create workspace
         working-directory: ${{ steps.find-dir.outputs.dir }}
@@ -618,21 +623,33 @@ jobs:
       - name: Terraform Destroy
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy' }}
         working-directory: ${{ steps.find-dir.outputs.dir }}
+        env:
+          ENVIRONMENT: ${{ needs.determine-environment.outputs.environment }}
+          AWS_REGION: ${{ env.AWS_DEFAULT_REGION }}
+          TFVARS_FILE: ${{ needs.determine-environment.outputs.workspace }}.tfvars
         run: |
-          TFVARS_FILE="${{ needs.determine-environment.outputs.workspace }}.tfvars"
-          if [ -f "$TFVARS_FILE" ]; then
-            terraform destroy \
-              -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
-              -var-file="$TFVARS_FILE" \
-              -var="aws_region=${AWS_DEFAULT_REGION}" \
-              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
-              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-              -auto-approve
+          set -euo pipefail
+
+          # kubeconfig so the k8s provider can delete objects
+          aws eks update-kubeconfig --name "$(terraform output -raw cluster_name)" --region "$AWS_REGION"
+
+          # Build args safely to avoid blank positional args
+          ARGS=(-input=false -auto-approve
+                -var="environment=$ENVIRONMENT"
+                -var="aws_region=$AWS_REGION")
+
+          # Include tfvars if it exists
+          if [ -n "${TFVARS_FILE:-}" ] && [ -f "$TFVARS_FILE" ]; then
+            ARGS+=(-var-file="$TFVARS_FILE")
           else
-            terraform destroy \
-              -var="environment=${{ needs.determine-environment.outputs.workspace }}" \
-              -var="aws_region=${AWS_DEFAULT_REGION}" \ 
-              -var="aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}" \
-              -var="aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-              -auto-approve
+            # fall back to inline secrets so required vars are satisfied
+            ARGS+=(-var="aws_access_key_id=${AWS_ACCESS_KEY_ID}")
+            ARGS+=(-var="aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}")
+            # if your code requires namespace
+            ARGS+=(-var="namespace=guestlist")
+            # image_tag is irrelevant for destroy but required by config evaluation
+            ARGS+=(-var="image_tag=ignore")
           fi
+
+          terraform destroy "${ARGS[@]}"
+
