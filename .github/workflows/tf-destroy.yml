@@ -49,14 +49,12 @@ jobs:
           echo "bucket=guestlist-tfstate-$BRANCH_SANITIZED" >> $GITHUB_OUTPUT
           echo "key=${BRANCH_SANITIZED}/terraform.tfstate" >> $GITHUB_OUTPUT
 
-      - name: Configure AWS (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
@@ -67,8 +65,5 @@ jobs:
             -backend-config="key=${{ steps.bk.outputs.key }}" \
             -backend-config="region=${AWS_REGION}"
 
-      - name: Select workspace
-        run: terraform workspace select "${{ inputs.environment }}"
-
-      - name: Destroy
-        run: terraform destroy -auto-approve
+      - run: terraform workspace select "${{ inputs.environment }}"
+      - run: terraform destroy -auto-approve
