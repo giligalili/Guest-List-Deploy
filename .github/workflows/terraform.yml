@@ -440,32 +440,19 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'init' }}
         run: echo "Terraform init completed successfully."
 
-      - name: Export cluster_name from state (safe)
+      - name: Export cluster name from state (safe)
         env:
           TF_CLI_ARGS: -no-color
         run: |
           set -euo pipefail
-
-          # Ensure backend is reconfigured to the SAME key used elsewhere
-          terraform init -input=false -reconfigure \
-            -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=${TF_STATE_KEY}" \
-            -backend-config="region=${AWS_REGION}"
-
-          # Make sure outputs are materialized in the remote state
-          terraform apply -refresh-only -auto-approve -input=false || true
-
-          # Try to read the output; don't pollute $GITHUB_ENV with warnings
-          if terraform output -raw cluster_name > /tmp/cluster_name 2>/dev/null; then
-            CLUSTER_NAME="$(cat /tmp/cluster_name)"
-          else
-            # Fallback so the job doesn't die if outputs truly aren't there yet
+          # Try to read the output without polluting $GITHUB_ENV with warnings
+          CLUSTER_NAME="$(terraform output -raw cluster_name 2>/dev/null || true)"
+          if [ -z "${CLUSTER_NAME}" ]; then
+            # Fallback name you actually use
             CLUSTER_NAME="guestlist-cluster"
           fi
-
           echo "CLUSTER_NAME=${CLUSTER_NAME}" >> "$GITHUB_ENV"
           echo "Cluster name: ${CLUSTER_NAME}"
-
 
       - name: Configure kubeconfig
         env:
@@ -633,7 +620,6 @@ jobs:
           AWS_REGION: ${{ env.AWS_REGION }}
           ENVIRONMENT: ${{ env.ENVIRONMENT }}
           TF_STATE_BUCKET: ${{ env.TF_STATE_BUCKET }}
-          TF_STATE_KEY: envs/${{ env.ENVIRONMENT }}/terraform.tfstate
           KUBECONFIG_PATH: kubeconfig-${{ env.ENVIRONMENT }}.yaml
         run: |
           set -euo pipefail
