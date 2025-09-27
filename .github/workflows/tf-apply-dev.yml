@@ -1,14 +1,25 @@
-name: Terraform • Apply (dev)
+name: Terraform • Destroy
 
 on:
   workflow_call:
-  push:
-    branches: [ dev ]
-    paths:
-      - "**.tf"
-      - "**.tfvars"
-      - "**.yml"
-      - "**.yaml"
+    inputs:
+      environment:
+        required: true
+        type: string
+      confirm:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Workspace to destroy (e.g., dev)"
+        type: choice
+        required: true
+        options: [ dev ]
+      confirm:
+        description: "Type EXACTLY: destroy dev"
+        required: true
+        type: string
 
 permissions:
   id-token: write
@@ -16,28 +27,27 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  TF_WORKSPACE: dev
-  TF_STATE_KEY: dev/terraform.tfstate
 
 jobs:
-  apply:
+  destroy:
+    if: |
+      (github.event_name == 'workflow_dispatch'  && inputs.confirm == 'destroy dev' && inputs.environment == 'dev') ||
+      (github.event_name == 'workflow_call'       && inputs.confirm == format('destroy {0}', inputs.environment))
     runs-on: ubuntu-latest
-    environment: dev
-    concurrency:
-      group: tf-apply-${{ github.ref }}
-      cancel-in-progress: false
+    environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Derive S3 bucket from branch
-        id: bucket
+      - name: Derive S3 bucket & key from environment
+        id: bk
         shell: bash
         run: |
-          BRANCH="${GITHUB_REF_NAME}"
+          BRANCH="${{ inputs.environment }}"
           BRANCH_SANITIZED="$(echo "$BRANCH" \
             | tr '[:upper:]' '[:lower:]' \
             | sed -E 's#[^a-z0-9-]#-#g' | sed -E 's#-+#-#g' | sed -E 's#(^-)|(-$)##g')"
-          echo "name=guestlist-tfstate-$BRANCH_SANITIZED" >> $GITHUB_OUTPUT
+          echo "bucket=guestlist-tfstate-$BRANCH_SANITIZED" >> $GITHUB_OUTPUT
+          echo "key=${BRANCH_SANITIZED}/terraform.tfstate" >> $GITHUB_OUTPUT
 
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -53,15 +63,12 @@ jobs:
       - name: Terraform init (S3 backend)
         run: |
           terraform init -input=false \
-            -backend-config="bucket=${{ steps.bucket.outputs.name }}" \
-            -backend-config="key=${TF_STATE_KEY}" \
+            -backend-config="bucket=${{ steps.bk.outputs.bucket }}" \
+            -backend-config="key=${{ steps.bk.outputs.key }}" \
             -backend-config="region=${AWS_REGION}"
 
-      - name: Select/Create workspace
-        run: terraform workspace select "${TF_WORKSPACE}" || terraform workspace new "${TF_WORKSPACE}"
+      - name: Select workspace
+        run: terraform workspace select "${{ inputs.environment }}"
 
-      - name: Plan (fresh)
-        run: terraform plan -input=false -out=tfplan.bin
-
-      - name: Apply (auto-approve)
-        run: terraform apply -input=false -auto-approve tfplan.bin
+      - name: Destroy
+        run: terraform destroy -auto-approve
